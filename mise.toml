@@ -1,0 +1,27 @@
+[tools]
+python = "3.13"
+uv = "latest"
+
+[tasks.install]
+description = "Install all dependencies (including dev)"
+run = "uv sync"
+
+[tasks.lint]
+description = "Lint with ruff"
+run = "uv run ruff check"
+
+[tasks.fmt]
+description = "Format with ruff"
+run = "uv run ruff format"
+
+[tasks.test]
+description = "Run pytest (fails under 100% line and branch coverage)"
+run = "uv run pytest"
+
+[tasks.install-tool]
+description = "Put t3cc on your PATH as an editable uv tool, so repo edits apply immediately"
+run = 'uv tool install --editable --force "{{config_root}}"'
+
+[tasks.uninstall-tool]
+description = "Remove the t3cc uv tool"
+run = "uv tool uninstall t3cc"
