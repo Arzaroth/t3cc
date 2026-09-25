@@ -70,7 +70,7 @@ t3cc export --all --project ~/Repos/app
 ```sh
 mise run install     # uv sync
 mise run test        # fails under 100% line and branch coverage
-mise run lint
+mise run check       # ty + ruff
 mise run fmt
 ```
 
