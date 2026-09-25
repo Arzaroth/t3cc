@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from t3cc.errors import T3ccError
-from t3cc.t3.events import EventWriter, new_id
+from t3cc.t3.events import Event, EventWriter, new_id
 
 CLAUDE_PROVIDER = "claudeAgent"
 
@@ -106,8 +106,7 @@ class T3Repository:
         return {stream_id[len(prefix) :] for (stream_id,) in rows}
 
     def create_project(self, workspace_root: str, now: str) -> Project:
-        project_id, command_id = new_id(), new_id()
-        title = Path(workspace_root).name or workspace_root
+        project_id, title = new_id(), Path(workspace_root).name or workspace_root
         payload = {
             "projectId": project_id,
             "title": title,
@@ -117,17 +116,7 @@ class T3Repository:
             "createdAt": now,
             "updatedAt": now,
         }
-        sequence = self.events.append(
-            aggregate_kind="project",
-            stream_id=project_id,
-            event_type="project.created",
-            occurred_at=now,
-            command_id=command_id,
-            payload=payload,
-        )
-        self.events.receipt(
-            command_id=command_id, aggregate_kind="project", aggregate_id=project_id, accepted_at=now, sequence=sequence
-        )
+        self.events.command("project", project_id, [Event("project.created", now, payload)])
         return Project(project_id, title, workspace_root)
 
     def bind_claude_session(self, *, thread_id: str, session_id: str, cwd: str, source: dict, now: str) -> None:

@@ -15,7 +15,7 @@ from pathlib import Path
 from t3cc import timeutil
 from t3cc.claude.store import ClaudeStore
 from t3cc.claude.transcript import DEFAULT_MODEL, Transcript
-from t3cc.t3.events import new_id
+from t3cc.t3.events import Event
 from t3cc.t3.repo import CLAUDE_PROVIDER, Project, T3Repository, imported_thread_id
 
 SESSION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.I)
@@ -155,44 +155,24 @@ def write_thread(repo: T3Repository, item: PlannedImport, project: Project, now:
     transcript, thread_id = item.transcript, item.thread_id
     messages = transcript.messages
     created_at = messages[0].created_at
-    create_command = new_id()
-    sequence = repo.events.append(
-        aggregate_kind="thread",
-        stream_id=thread_id,
-        event_type="thread.created",
-        occurred_at=created_at,
-        command_id=create_command,
-        payload={
-            "threadId": thread_id,
-            "projectId": project.id,
-            "title": transcript.title,
-            "modelSelection": {"instanceId": CLAUDE_PROVIDER, "model": transcript.model or DEFAULT_MODEL},
-            "runtimeMode": "full-access",
-            "interactionMode": "default",
-            "branch": item.placement.branch,
-            "worktreePath": item.placement.worktree,
-            "createdAt": created_at,
-            "updatedAt": created_at,
-        },
-        metadata=HISTORY_IMPORT,
-    )
-    repo.events.receipt(
-        command_id=create_command,
-        aggregate_kind="thread",
-        aggregate_id=thread_id,
-        accepted_at=created_at,
-        sequence=sequence,
-    )
-
-    history_command = new_id()
-    for index, message in enumerate(messages):
-        repo.events.append(
-            aggregate_kind="thread",
-            stream_id=thread_id,
-            event_type="thread.message-sent",
-            occurred_at=message.created_at,
-            command_id=history_command,
-            payload={
+    settled_at = max(m.created_at for m in messages)
+    created = {
+        "threadId": thread_id,
+        "projectId": project.id,
+        "title": transcript.title,
+        "modelSelection": {"instanceId": CLAUDE_PROVIDER, "model": transcript.model or DEFAULT_MODEL},
+        "runtimeMode": "full-access",
+        "interactionMode": "default",
+        "branch": item.placement.branch,
+        "worktreePath": item.placement.worktree,
+        "createdAt": created_at,
+        "updatedAt": created_at,
+    }
+    history = [
+        Event(
+            "thread.message-sent",
+            message.created_at,
+            {
                 "threadId": thread_id,
                 "messageId": f"{thread_id}:{index:06d}",
                 "role": message.role,
@@ -202,24 +182,13 @@ def write_thread(repo: T3Repository, item: PlannedImport, project: Project, now:
                 "createdAt": message.created_at,
                 "updatedAt": message.created_at,
             },
-            metadata=HISTORY_IMPORT,
         )
-    settled_at = max(m.created_at for m in messages)
-    sequence = repo.events.append(
-        aggregate_kind="thread",
-        stream_id=thread_id,
-        event_type="thread.settled",
-        occurred_at=settled_at,
-        command_id=history_command,
-        payload={"threadId": thread_id, "settledAt": settled_at, "updatedAt": settled_at},
-        metadata=HISTORY_IMPORT,
-    )
-    repo.events.receipt(
-        command_id=history_command,
-        aggregate_kind="thread",
-        aggregate_id=thread_id,
-        accepted_at=settled_at,
-        sequence=sequence,
+        for index, message in enumerate(messages)
+    ]
+    settled = {"threadId": thread_id, "settledAt": settled_at, "updatedAt": settled_at}
+    repo.events.command("thread", thread_id, [Event("thread.created", created_at, created)], metadata=HISTORY_IMPORT)
+    repo.events.command(
+        "thread", thread_id, [*history, Event("thread.settled", settled_at, settled)], metadata=HISTORY_IMPORT
     )
 
     stat = transcript.stat

@@ -6,6 +6,7 @@ import pytest
 
 from t3cc.errors import T3ccError
 from t3cc.t3 import db
+from t3cc.t3.events import Event, EventWriter
 from t3cc.t3.repo import T3Repository, Thread, imported_thread_id, pick_threads
 
 
@@ -75,32 +76,22 @@ def test_backup(world):
 
 def test_event_writer_versions_streams_and_receipts(world):
     con = world.db()
-    repo = T3Repository(con)
-    first = repo.events.append(
-        aggregate_kind="thread",
-        stream_id="s",
-        event_type="thread.created",
-        occurred_at="t",
-        command_id="c",
-        payload={"x": "é"},
+    events = EventWriter(con)
+    events.command("thread", "s", [Event("thread.created", "t0", {"x": "é"})])
+    events.command(
+        "thread", "s", [Event("thread.message-sent", "t1", {}), Event("thread.settled", "t2", {})], metadata={"k": 1}
     )
-    second = repo.events.append(
-        aggregate_kind="thread",
-        stream_id="s",
-        event_type="thread.settled",
-        occurred_at="t",
-        command_id="c",
-        payload={},
-        metadata={"historyImport": True},
-    )
-    repo.events.receipt(command_id="c", aggregate_kind="thread", aggregate_id="s", accepted_at="t", sequence=second)
     rows = con.execute("SELECT * FROM orchestration_events ORDER BY sequence").fetchall()
-    assert [r["stream_version"] for r in rows] == [0, 1]
-    assert rows[0]["sequence"] == first
-    assert rows[0]["actor_kind"] == "client" and rows[0]["correlation_id"] == "c"
+    assert [r["stream_version"] for r in rows] == [0, 1, 2]
+    assert rows[0]["actor_kind"] == "client" and rows[0]["correlation_id"] == rows[0]["command_id"]
+    assert rows[1]["command_id"] == rows[2]["command_id"] != rows[0]["command_id"]
     assert json.loads(rows[0]["payload_json"]) == {"x": "é"}
-    assert json.loads(rows[1]["metadata_json"]) == {"historyImport": True}
-    assert con.execute("SELECT status FROM orchestration_command_receipts").fetchone()[0] == "accepted"
+    assert [json.loads(r["metadata_json"]) for r in rows] == [{}, {"k": 1}, {"k": 1}]
+    receipts = con.execute("SELECT * FROM orchestration_command_receipts ORDER BY result_sequence").fetchall()
+    assert [(r["command_id"], r["accepted_at"], r["result_sequence"], r["status"]) for r in receipts] == [
+        (rows[0]["command_id"], "t0", rows[0]["sequence"], "accepted"),
+        (rows[2]["command_id"], "t2", rows[2]["sequence"], "accepted"),
+    ]
 
 
 def test_repo_projects_skip_deleted(world):
@@ -121,22 +112,8 @@ def test_repo_session_sets(world):
         )
     repo = T3Repository(world.db())
     assert repo.native_session_ids() == {"s1"}
-    repo.events.append(
-        aggregate_kind="thread",
-        stream_id=imported_thread_id("s2"),
-        event_type="e",
-        occurred_at="t",
-        command_id="c",
-        payload={},
-    )
-    repo.events.append(
-        aggregate_kind="project",
-        stream_id=imported_thread_id("s3"),
-        event_type="e",
-        occurred_at="t",
-        command_id="c",
-        payload={},
-    )
+    repo.events.command("thread", imported_thread_id("s2"), [Event("e", "t", {})])
+    repo.events.command("project", imported_thread_id("s3"), [Event("e", "t", {})])
     assert repo.imported_session_ids() == {"s2"}
 
 
