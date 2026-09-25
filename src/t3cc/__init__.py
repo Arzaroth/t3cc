@@ -1,3 +1,5 @@
 """Move conversation history between Claude Code and T3 Code."""
 
-__version__ = "0.1.0"
+from importlib.metadata import version
+
+__version__ = version("t3cc")
