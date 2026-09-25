@@ -16,16 +16,14 @@ class ExportKind(StrEnum):
     NATIVE = "native"
     COPIED = "copied"
     SYNTHESIZED = "synthesized"
-    EMPTY = "empty"
 
 
 @dataclass(frozen=True)
 class ExportResult:
-    thread: Thread
     kind: ExportKind
     cwd: str
-    session_id: str | None = None
-    path: Path | None = None
+    session_id: str
+    path: Path
     turns: int = 0
 
 
@@ -45,6 +43,13 @@ def resolve_cwd(thread: Thread, target: str | None, is_dir: Callable[[str], bool
     return thread.workspace_root
 
 
+def native_transcript(store: ClaudeStore, thread: Thread) -> Path | None:
+    """The Claude Code transcript a Claude thread resumes, when it exists."""
+    if thread.provider != CLAUDE_PROVIDER or not thread.resume_session_id:
+        return None
+    return store.by_session_id(thread.resume_session_id)
+
+
 def thread_turns(repo: T3Repository, thread: Thread) -> list[Turn]:
     turns = []
     for message in repo.thread_messages(thread.id):
@@ -62,25 +67,25 @@ def export_thread(
     flatten: bool = False,
     dry_run: bool = False,
     is_dir: Callable[[str], bool] = os.path.isdir,
-) -> ExportResult:
+) -> ExportResult | None:
+    """None when the thread has no text to rebuild a session from."""
     cwd = resolve_cwd(thread, target, is_dir)
-    session_id = thread.resume_session_id if thread.provider == CLAUDE_PROVIDER else None
-    native = store.by_session_id(session_id) if session_id else None
-    if native and not flatten:
+    native = None if flatten else native_transcript(store, thread)
+    if native:
         dest = store.project_dir(cwd) / native.name
         if dest.exists():
-            return ExportResult(thread, ExportKind.NATIVE, cwd, session_id, dest)
+            return ExportResult(ExportKind.NATIVE, cwd, native.stem, dest)
         if not dry_run:
             store.copy_into(native, cwd)
-        return ExportResult(thread, ExportKind.COPIED, cwd, session_id, dest)
+        return ExportResult(ExportKind.COPIED, cwd, native.stem, dest)
 
     turns = thread_turns(repo, thread)
     if not turns:
-        return ExportResult(thread, ExportKind.EMPTY, cwd)
-    new_session, records = build_session(
+        return None
+    session_id, records = build_session(
         turns, cwd=cwd, branch=thread.branch, model=thread.model or DEFAULT_MODEL, title=thread.title
     )
-    path = store.session_path(cwd, new_session)
+    path = store.session_path(cwd, session_id)
     if not dry_run:
-        path = store.write_session(cwd, new_session, records)
-    return ExportResult(thread, ExportKind.SYNTHESIZED, cwd, new_session, path, len(turns))
+        store.write_session(cwd, session_id, records)
+    return ExportResult(ExportKind.SYNTHESIZED, cwd, session_id, path, len(turns))

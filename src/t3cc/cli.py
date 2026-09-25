@@ -13,7 +13,7 @@ from t3cc.exporter import ExportKind
 from t3cc.paths import Paths
 from t3cc.sync import SyncState
 from t3cc.t3 import db
-from t3cc.t3.repo import T3Repository
+from t3cc.t3.repo import T3Repository, Thread
 
 
 def _summary(counts: dict[str, int]) -> str:
@@ -46,8 +46,7 @@ def cmd_list_t3(args, paths: Paths, out: TextIO) -> int:
         threads = exporter.select_threads(T3Repository(con).threads(), [], args.project)
     store = ClaudeStore(paths.claude_projects)
     for thread in threads[: args.limit]:
-        has_transcript = thread.resume_session_id and store.by_session_id(thread.resume_session_id)
-        kind = "claude" if has_transcript else thread.provider or "-"
+        kind = "claude" if exporter.native_transcript(store, thread) else thread.provider or "-"
         print(f"{thread.id:<60}  {thread.updated_at[:16]}  {kind:12}  {thread.title[:60]!r}", file=out)
     return 0
 
@@ -117,7 +116,7 @@ def cmd_export(args, paths: Paths, out: TextIO) -> int:
             result = exporter.export_thread(
                 repo, store, thread, target=args.to, flatten=args.flatten, dry_run=args.dry_run
             )
-            print(_export_line(result, args.dry_run), file=out)
+            print(_export_line(thread, result, args.dry_run), file=out)
     return 0
 
 
@@ -158,15 +157,14 @@ def _sync_message(result: sync.SyncResult, *, force: bool) -> str:
     return f"would {action}"
 
 
-def _export_line(result: exporter.ExportResult, dry_run: bool) -> str:
-    head = f"{result.thread.id[:36]:<36}"
-    if result.kind is ExportKind.EMPTY:
+def _export_line(thread: Thread, result: exporter.ExportResult | None, dry_run: bool) -> str:
+    head = f"{thread.id[:36]:<36}"
+    if result is None:
         return f"{head}  skipped: no text messages"
-    resume = f"cd {result.cwd} && claude --resume {result.session_id}   # {result.thread.title[:50]!r}"
+    resume = f"cd {result.cwd} && claude --resume {result.session_id}   # {thread.title[:50]!r}"
     if result.kind is ExportKind.NATIVE:
         return f"{head}  already a Claude Code session: {resume}"
     if result.kind is ExportKind.COPIED:
-        assert result.path is not None
         verb = "would copy" if dry_run else "copied"
         return f"{head}  {verb} to {result.path.parent.name}: {resume}"
     verb = "would write" if dry_run else "wrote"

@@ -1,13 +1,12 @@
 import dataclasses
 import json
-from pathlib import Path
 
 import pytest
 
 from conftest import user
 from t3cc.claude.store import ClaudeStore
 from t3cc.errors import T3ccError
-from t3cc.exporter import ExportKind, ExportResult, export_thread, resolve_cwd, select_threads
+from t3cc.exporter import ExportKind, ExportResult, export_thread, native_transcript, resolve_cwd, select_threads
 from t3cc.t3.repo import T3Repository, Thread
 
 BASE_THREAD = Thread(
@@ -28,9 +27,9 @@ def make_thread(thread_id="t1", root="/r", **kw):
     return dataclasses.replace(BASE_THREAD, id=thread_id, workspace_root=root, **kw)
 
 
-def path_of(result: ExportResult) -> Path:
-    assert result.path is not None
-    return result.path
+def exported(result: ExportResult | None) -> ExportResult:
+    assert result is not None
+    return result
 
 
 def test_select_threads(tmp_path):
@@ -53,6 +52,16 @@ def test_resolve_cwd(tmp_path):
     assert resolve_cwd(make_thread(runtime_cwd="/gone"), None, exists) == "/r"
 
 
+def test_native_transcript_only_for_claude_threads_with_a_transcript(world):
+    store = ClaudeStore(world.paths.claude_projects)
+    sid = "99999999-9999-4999-8999-999999999999"
+    path = world.transcript("/r", [user("q")], sid)
+    assert native_transcript(store, make_thread(provider="claudeAgent", resume_session_id=sid)) == path
+    assert native_transcript(store, make_thread(provider="codex", resume_session_id=sid)) is None
+    assert native_transcript(store, make_thread(provider="claudeAgent")) is None
+    assert native_transcript(store, make_thread(provider="claudeAgent", resume_session_id="gone")) is None
+
+
 def setup_native(world):
     project = world.project("/r")
     sid = "99999999-9999-4999-8999-999999999999"
@@ -64,22 +73,23 @@ def setup_native(world):
 
 def test_export_native_thread_in_place(world):
     repo, store, thread, sid, _ = setup_native(world)
-    result = export_thread(repo, store, thread, is_dir=lambda p: True)
+    result = exported(export_thread(repo, store, thread, is_dir=lambda p: True))
     assert (result.kind, result.session_id, result.cwd) == (ExportKind.NATIVE, sid, "/r")
 
 
 def test_export_native_thread_elsewhere(world, tmp_path):
     repo, store, thread, sid, _ = setup_native(world)
-    dry = export_thread(repo, store, thread, target=str(tmp_path), dry_run=True)
-    assert dry.kind is ExportKind.COPIED and not path_of(dry).exists()
-    done = export_thread(repo, store, thread, target=str(tmp_path))
-    assert done.kind is ExportKind.COPIED and path_of(done).exists()
-    assert export_thread(repo, store, thread, target=str(tmp_path)).kind is ExportKind.NATIVE
+    dry = exported(export_thread(repo, store, thread, target=str(tmp_path), dry_run=True))
+    assert dry.kind is ExportKind.COPIED and not dry.path.exists()
+    done = exported(export_thread(repo, store, thread, target=str(tmp_path)))
+    assert (done.kind, done.session_id, done.path) == (ExportKind.COPIED, sid, dry.path)
+    assert done.path.exists()
+    assert exported(export_thread(repo, store, thread, target=str(tmp_path))).kind is ExportKind.NATIVE
 
 
 def test_export_flatten_synthesizes(world, tmp_path):
     repo, store, thread, sid, _ = setup_native(world)
-    result = export_thread(repo, store, thread, target=str(tmp_path), flatten=True)
+    result = exported(export_thread(repo, store, thread, target=str(tmp_path), flatten=True))
     assert result.kind is ExportKind.SYNTHESIZED and result.session_id != sid
 
 
@@ -100,11 +110,12 @@ def test_export_synthesizes_non_claude_threads(world, tmp_path):
     )
     repo, store = T3Repository(world.db()), ClaudeStore(world.paths.claude_projects)
     thread = repo.threads()[0]
-    dry = export_thread(repo, store, thread, dry_run=True)
-    assert dry.kind is ExportKind.SYNTHESIZED and not path_of(dry).exists()
-    result = export_thread(repo, store, thread)
+    dry = exported(export_thread(repo, store, thread, dry_run=True))
+    assert dry.kind is ExportKind.SYNTHESIZED and not dry.path.exists()
+    result = exported(export_thread(repo, store, thread))
     assert result.turns == 4 and result.cwd == str(tmp_path)
-    records = [json.loads(line) for line in path_of(result).read_text().splitlines()]
+    assert result.path == store.session_path(tmp_path, result.session_id)
+    records = [json.loads(line) for line in result.path.read_text().splitlines()]
     assert [r["type"] for r in records] == ["user", "assistant", "user", "assistant", "ai-title"]
     assert records[2]["message"]["content"] == "[attachment: shot.png]\n\ndo it"
     assert records[1]["message"]["model"] == "gpt-6" and records[0]["gitBranch"] == "dev"
@@ -115,13 +126,12 @@ def test_export_claude_thread_without_transcript_uses_default_model(world, tmp_p
     project = world.project(str(tmp_path))
     world.thread(project, provider="claudeAgent", resume="missing", raw_model_json="{}", messages=[("user", "q")])
     repo = T3Repository(world.db())
-    result = export_thread(repo, ClaudeStore(world.paths.claude_projects), repo.threads()[0])
-    record = json.loads(path_of(result).read_text().splitlines()[0])
+    result = exported(export_thread(repo, ClaudeStore(world.paths.claude_projects), repo.threads()[0]))
+    record = json.loads(result.path.read_text().splitlines()[0])
     assert result.kind is ExportKind.SYNTHESIZED and record["sessionId"] == result.session_id
 
 
 def test_export_empty_thread(world, tmp_path):
     world.thread(world.project(str(tmp_path)), messages=[("user", "  ")])
     repo = T3Repository(world.db())
-    result = export_thread(repo, ClaudeStore(world.paths.claude_projects), repo.threads()[0])
-    assert result.kind is ExportKind.EMPTY and result.session_id is None
+    assert export_thread(repo, ClaudeStore(world.paths.claude_projects), repo.threads()[0]) is None
