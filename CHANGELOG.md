@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `t3cc list-t3` marks a thread `claude` only when T3 runs it on Claude and its
+  transcript exists, the same test `t3cc export` uses.
+
 ## [0.1.0] - 2026-09-25
 
 ### Added
