@@ -38,7 +38,7 @@ def write(path: Path, lines: list[bytes] | None) -> Path:
 
 def setup(world, original, t3_copy, **thread_fields):
     store = ClaudeStore(world.paths.claude_projects)
-    original_path = write(store.project_dir("/started-here") / f"{SID}.jsonl", original)
+    original_path = write(store.session_path("/started-here", SID), original)
     thread = dataclasses.replace(BASE, imported_from=str(original_path), **thread_fields)
     copy_path = write(t3_copy_path(store, thread), t3_copy)
     return store, thread, original_path, copy_path

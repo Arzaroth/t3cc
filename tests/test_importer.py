@@ -6,8 +6,8 @@ from pathlib import Path
 from conftest import assistant, user
 from t3cc.claude import transcript
 from t3cc.claude.store import ClaudeStore
+from t3cc.claude.transcript import DEFAULT_MODEL
 from t3cc.importer import (
-    DEFAULT_MODEL,
     ImportOptions,
     ImportPlan,
     Placement,

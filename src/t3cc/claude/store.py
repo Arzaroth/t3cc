@@ -1,10 +1,10 @@
 import json
+import re
 import shutil
 from collections.abc import Iterable
 from pathlib import Path
 
 from t3cc.errors import T3ccError
-from t3cc.paths import claude_project_dir
 
 
 class ClaudeStore:
@@ -12,7 +12,10 @@ class ClaudeStore:
         self.projects = projects
 
     def project_dir(self, cwd: str | Path) -> Path:
-        return claude_project_dir(self.projects, cwd)
+        return self.projects / re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
+
+    def session_path(self, cwd: str | Path, session_id: str) -> Path:
+        return self.project_dir(cwd) / f"{session_id}.jsonl"
 
     def all_transcripts(self) -> list[Path]:
         return sorted(self.projects.glob("*/*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -43,7 +46,7 @@ class ClaudeStore:
         return dest
 
     def write_session(self, cwd: str, session_id: str, records: Iterable[dict]) -> Path:
-        dest = self.project_dir(cwd) / f"{session_id}.jsonl"
+        dest = self.session_path(cwd, session_id)
         if dest.exists():
             raise T3ccError(f"refusing to overwrite {dest}")
         dest.parent.mkdir(parents=True, exist_ok=True)

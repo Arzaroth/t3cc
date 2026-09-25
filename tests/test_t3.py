@@ -138,8 +138,6 @@ def test_repo_session_sets(world):
         payload={},
     )
     assert repo.imported_session_ids() == {"s2"}
-    assert repo.thread_exists(imported_thread_id("s2"))
-    assert not repo.thread_exists(imported_thread_id("s3"))
 
 
 def test_repo_create_project(world):

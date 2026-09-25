@@ -9,7 +9,6 @@ import pytest
 from conftest import assistant, user
 from t3cc import cli
 from t3cc.claude.store import ClaudeStore
-from t3cc.paths import claude_project_dir
 from t3cc.sync import SyncResult, SyncState
 from t3cc.t3.repo import Thread
 
@@ -145,7 +144,7 @@ def test_export(world, tmp_path, capsys):
     out = run(world, "export", "native", "codex", "--to", str(elsewhere), "--dry-run")[1]
     assert "would copy to" in out and "would write 1 turns" in out
     out = run(world, "export", "native", "--to", str(elsewhere))[1]
-    assert f"  copied to {claude_project_dir(world.paths.claude_projects, elsewhere).name}: cd {elsewhere}" in out
+    assert f"  copied to {ClaudeStore(world.paths.claude_projects).project_dir(elsewhere).name}: cd {elsewhere}" in out
 
 
 def test_version(capsys):
@@ -164,11 +163,11 @@ def test_module_entry_point(monkeypatch, capsys):
 
 def imported_session(world, original: list[str], t3_copy: list[str] | None) -> Path:
     store = ClaudeStore(world.paths.claude_projects)
-    original_path = store.project_dir("/r/deleted") / f"{SID}.jsonl"
+    original_path = store.session_path("/r/deleted", SID)
     original_path.parent.mkdir(parents=True)
     original_path.write_text("".join(line + "\n" for line in original))
     if t3_copy is not None:
-        copy_path = store.project_dir("/r") / f"{SID}.jsonl"
+        copy_path = store.session_path("/r", SID)
         copy_path.parent.mkdir(parents=True)
         copy_path.write_text("".join(line + "\n" for line in t3_copy))
     payload = {"cwd": "/r", "importedTranscripts": [{"filePath": str(original_path)}]}

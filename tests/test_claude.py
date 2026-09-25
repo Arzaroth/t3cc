@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -86,6 +87,12 @@ def test_parse_without_messages(world):
     assert t.cwd is None
     assert t.messages == ()
     assert not t.has_user_message
+
+
+def test_store_encodes_every_non_alnum_in_project_dirs():
+    store = ClaudeStore(Path("/p"))
+    assert store.project_dir("/home/a/.t3/w_x") == Path("/p/-home-a--t3-w-x")
+    assert store.session_path("/a", "sid") == Path("/p/-a/sid.jsonl")
 
 
 def test_store_listing_and_lookup(world, tmp_path):

@@ -4,6 +4,7 @@ Threads are written the way T3 Code's own AgentSessionImporter writes them (same
 provider binding), so T3 recognises them as imported and never imports them twice.
 """
 
+import os
 import re
 from collections import Counter
 from collections.abc import Callable, Iterable
@@ -13,11 +14,10 @@ from pathlib import Path
 
 from t3cc import timeutil
 from t3cc.claude.store import ClaudeStore
-from t3cc.claude.transcript import Transcript
+from t3cc.claude.transcript import DEFAULT_MODEL, Transcript
 from t3cc.t3.events import new_id
 from t3cc.t3.repo import CLAUDE_PROVIDER, Project, T3Repository, imported_thread_id
 
-DEFAULT_MODEL = "claude-opus-5-5"
 SESSION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.I)
 HISTORY_IMPORT = {"historyImport": True}
 
@@ -129,7 +129,7 @@ def plan_import(
     options: ImportOptions,
     *,
     t3_worktrees: Path,
-    is_dir: Callable[[str], bool] = lambda p: Path(p).is_dir(),
+    is_dir: Callable[[str], bool] = os.path.isdir,
 ) -> ImportPlan:
     projects = repo.projects()
     native = repo.native_session_ids()

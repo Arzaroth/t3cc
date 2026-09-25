@@ -82,13 +82,6 @@ class T3Repository:
         )
         return {stream_id[len(prefix) :] for (stream_id,) in rows}
 
-    def thread_exists(self, thread_id: str) -> bool:
-        row = self.con.execute(
-            "SELECT 1 FROM orchestration_events WHERE aggregate_kind = 'thread' AND stream_id = ? LIMIT 1",
-            (thread_id,),
-        ).fetchone()
-        return row is not None
-
     def create_project(self, workspace_root: str, now: str) -> Project:
         project_id, command_id = new_id(), new_id()
         title = Path(workspace_root).name or workspace_root

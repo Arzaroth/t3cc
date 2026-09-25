@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from t3cc.paths import Paths, claude_project_dir
+from t3cc.claude.store import ClaudeStore
+from t3cc.paths import Paths
 
 SCHEMA = Path(__file__).parent / "fixtures" / "t3_schema.sql"
 
@@ -49,7 +50,7 @@ class World:
 
     def transcript(self, cwd, records, session_id=None, *, stamp_cwd=True):
         session_id = session_id or str(uuid.uuid4())
-        path = claude_project_dir(self.paths.claude_projects, cwd) / f"{session_id}.jsonl"
+        path = ClaudeStore(self.paths.claude_projects).session_path(cwd, session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w") as fh:
             for record in records:

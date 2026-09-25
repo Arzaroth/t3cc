@@ -1,5 +1,4 @@
 import os
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,7 +27,3 @@ class Paths:
     @property
     def t3_worktrees(self) -> Path:
         return self.t3_home / "worktrees"
-
-
-def claude_project_dir(projects: Path, cwd: str | Path) -> Path:
-    return projects / re.sub(r"[^A-Za-z0-9]", "-", str(cwd))

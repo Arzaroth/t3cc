@@ -1,5 +1,6 @@
 """T3 Code threads -> Claude Code sessions resumable with `claude --resume`."""
 
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -7,8 +8,8 @@ from pathlib import Path
 
 from t3cc.claude.store import ClaudeStore
 from t3cc.claude.synth import Turn, build_session, merge_turns
+from t3cc.claude.transcript import DEFAULT_MODEL
 from t3cc.errors import T3ccError
-from t3cc.importer import DEFAULT_MODEL
 from t3cc.t3.repo import CLAUDE_PROVIDER, T3Repository, Thread
 
 
@@ -69,7 +70,7 @@ def export_thread(
     target: str | None = None,
     flatten: bool = False,
     dry_run: bool = False,
-    is_dir: Callable[[str], bool] = lambda p: Path(p).is_dir(),
+    is_dir: Callable[[str], bool] = os.path.isdir,
 ) -> ExportResult:
     cwd = resolve_cwd(thread, target, is_dir)
     session_id = thread.resume_session_id if thread.provider == CLAUDE_PROVIDER else None
@@ -88,7 +89,7 @@ def export_thread(
     new_session, records = build_session(
         turns, cwd=cwd, branch=thread.branch, model=thread.model or DEFAULT_MODEL, title=thread.title
     )
-    path = store.project_dir(cwd) / f"{new_session}.jsonl"
+    path = store.session_path(cwd, new_session)
     if not dry_run:
         path = store.write_session(cwd, new_session, records)
     return ExportResult(thread, ExportKind.SYNTHESIZED, cwd, new_session, path, len(turns))

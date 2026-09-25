@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from t3cc import timeutil
-from t3cc.paths import Paths, claude_project_dir
+from t3cc.paths import Paths
 
 
 def test_paths_default_to_home(tmp_path):
@@ -23,10 +23,6 @@ def test_paths_honour_env(tmp_path):
 
 def test_paths_use_real_home_by_default():
     assert Paths.from_env({}).claude_projects == Path.home() / ".claude" / "projects"
-
-
-def test_claude_project_dir_encodes_every_non_alnum():
-    assert claude_project_dir(Path("/p"), "/home/a/.t3/w_x") == Path("/p/-home-a--t3-w-x")
 
 
 def test_to_iso_treats_naive_as_utc():

@@ -8,6 +8,7 @@ from typing import Any
 
 from t3cc import timeutil
 
+DEFAULT_MODEL = "claude-opus-5-5"
 TEXT_BLOCK_TYPES = ("text", "input_text", "output_text")
 
 
