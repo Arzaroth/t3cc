@@ -1,8 +1,10 @@
 import json
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from t3cc.errors import T3ccError
 from t3cc.t3.events import EventWriter, new_id
 
 CLAUDE_PROVIDER = "claudeAgent"
@@ -52,6 +54,27 @@ def _imported_from(runtime_payload: dict) -> str | None:
         return None
     path = transcripts[0].get("filePath")
     return path if isinstance(path, str) else None
+
+
+def pick_threads(
+    threads: list[Thread],
+    refs: list[str],
+    *,
+    noun: str = "threads",
+    keys: Callable[[Thread], tuple[str | None, ...]] = lambda t: (t.id,),
+) -> list[Thread]:
+    """Every thread when refs is empty, else the one thread each ref names exactly or by prefix."""
+    if not refs:
+        return threads
+    selected = []
+    for ref in refs:
+        hits = [t for t in threads if ref in keys(t)] or [
+            t for t in threads if any(key and key.startswith(ref) for key in keys(t))
+        ]
+        if len(hits) != 1:
+            raise T3ccError(f"'{ref}' matches {len(hits)} {noun}")
+        selected.append(hits[0])
+    return selected
 
 
 def imported_thread_id(session_id: str) -> str:

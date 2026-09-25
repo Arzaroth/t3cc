@@ -6,7 +6,7 @@ import pytest
 
 from t3cc.errors import T3ccError
 from t3cc.t3 import db
-from t3cc.t3.repo import T3Repository, imported_thread_id
+from t3cc.t3.repo import T3Repository, Thread, imported_thread_id, pick_threads
 
 
 def fake_proc(tmp_path, pid, cmdline):
@@ -221,3 +221,26 @@ def test_repo_threads_and_messages(world):
 def test_repo_threads_expose_imported_transcript(world, payload, expected):
     world.thread(world.project("/p"), provider="claudeAgent", raw_payload=json.dumps(payload))
     assert T3Repository(world.db()).threads()[0].imported_from == expected
+
+
+def make_thread(thread_id, session_id=None):
+    return Thread(thread_id, "T", None, None, None, "u", "/r", None, session_id, None)
+
+
+def test_pick_threads_prefers_exact_ids_over_prefixes():
+    threads = [make_thread("abc"), make_thread("abc-1"), make_thread("abc-2")]
+    assert pick_threads(threads, []) == threads
+    assert pick_threads(threads, ["abc", "abc-2"]) == [threads[0], threads[2]]
+    with pytest.raises(T3ccError, match="'abc-' matches 2 threads"):
+        pick_threads(threads, ["abc-"])
+    with pytest.raises(T3ccError, match="'zzz' matches 0 threads"):
+        pick_threads(threads, ["zzz"])
+
+
+def test_pick_threads_matches_every_key():
+    threads = [make_thread("t1", "s1"), make_thread("t2")]
+    pick = {"noun": "sessions", "keys": lambda t: (t.id, t.resume_session_id)}
+    assert pick_threads(threads, ["s1", "t2"], **pick) == threads
+    assert pick_threads(threads, ["s"], **pick) == [threads[0]]
+    with pytest.raises(T3ccError, match="'t' matches 2 sessions"):
+        pick_threads(threads, ["t"], **pick)

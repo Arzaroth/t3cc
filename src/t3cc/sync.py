@@ -14,7 +14,7 @@ from pathlib import Path
 
 from t3cc.claude.store import ClaudeStore
 from t3cc.errors import T3ccError
-from t3cc.t3.repo import Thread
+from t3cc.t3.repo import Thread, pick_threads
 
 
 class SyncState(StrEnum):
@@ -65,17 +65,7 @@ def session_pid(session_id: str, proc_root: Path = Path("/proc")) -> int | None:
 
 def select_imported(threads: list[Thread], refs: list[str]) -> list[Thread]:
     imported = [t for t in threads if t.imported_from]
-    if not refs:
-        return imported
-    selected = []
-    for ref in refs:
-        hits = [t for t in imported if ref in (t.id, t.resume_session_id)] or [
-            t for t in imported if t.id.startswith(ref) or (t.resume_session_id or "").startswith(ref)
-        ]
-        if len(hits) != 1:
-            raise T3ccError(f"'{ref}' matches {len(hits)} imported threads")
-        selected.append(hits[0])
-    return selected
+    return pick_threads(imported, refs, noun="imported threads", keys=lambda t: (t.id, t.resume_session_id))
 
 
 def t3_copy_path(store: ClaudeStore, thread: Thread) -> Path:

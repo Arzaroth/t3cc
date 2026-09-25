@@ -9,8 +9,7 @@ from pathlib import Path
 from t3cc.claude.store import ClaudeStore
 from t3cc.claude.synth import Turn, build_session, merge_turns
 from t3cc.claude.transcript import DEFAULT_MODEL
-from t3cc.errors import T3ccError
-from t3cc.t3.repo import CLAUDE_PROVIDER, T3Repository, Thread
+from t3cc.t3.repo import CLAUDE_PROVIDER, T3Repository, Thread, pick_threads
 
 
 class ExportKind(StrEnum):
@@ -34,15 +33,7 @@ def select_threads(threads: list[Thread], refs: list[str], project: str | None) 
     if project:
         resolved = str(Path(project).expanduser().resolve())
         threads = [t for t in threads if t.workspace_root in (project, resolved)]
-    if not refs:
-        return threads
-    selected = []
-    for ref in refs:
-        hits = [t for t in threads if t.id == ref] or [t for t in threads if t.id.startswith(ref)]
-        if len(hits) != 1:
-            raise T3ccError(f"thread '{ref}' matches {len(hits)} threads")
-        selected.append(hits[0])
-    return selected
+    return pick_threads(threads, refs)
 
 
 def resolve_cwd(thread: Thread, target: str | None, is_dir: Callable[[str], bool]) -> str:
