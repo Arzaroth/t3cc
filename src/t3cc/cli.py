@@ -3,6 +3,7 @@ import datetime as dt
 import sys
 from collections.abc import Sequence
 from contextlib import closing
+from pathlib import Path
 from typing import TextIO
 
 from t3cc import __version__, exporter, importer, sync
@@ -20,7 +21,7 @@ def _summary(counts: dict[str, int]) -> str:
     return ", ".join(f"{key}: {value}" for key, value in counts.items())
 
 
-def cmd_list_claude(args, paths: Paths, out: TextIO) -> int:
+def cmd_list_claude(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
     with closing(db.connect(paths, write=False)) as con:
         repo = T3Repository(con)
         native, imported = repo.native_session_ids(), repo.imported_session_ids()
@@ -41,7 +42,7 @@ def cmd_list_claude(args, paths: Paths, out: TextIO) -> int:
     return 0
 
 
-def cmd_list_t3(args, paths: Paths, out: TextIO) -> int:
+def cmd_list_t3(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
     with closing(db.connect(paths, write=False)) as con:
         threads = exporter.select_threads(T3Repository(con).threads(), [], args.project)
     store = ClaudeStore(paths.claude_projects)
@@ -51,7 +52,7 @@ def cmd_list_t3(args, paths: Paths, out: TextIO) -> int:
     return 0
 
 
-def _import_sources(args, store: ClaudeStore):
+def _import_sources(args: argparse.Namespace, store: ClaudeStore) -> list[Path]:
     if args.all:
         paths = store.all_transcripts()
         if args.since:
@@ -63,24 +64,20 @@ def _import_sources(args, store: ClaudeStore):
     return [store.find(ref) for ref in args.sessions]
 
 
-def cmd_import(args, paths: Paths, out: TextIO) -> int:
+def cmd_import(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
     store = ClaudeStore(paths.claude_projects)
     sources = _import_sources(args, store)
-    con = db.connect(paths, write=not args.dry_run, allow_unknown_schema=args.allow_unknown_schema)
-    try:
+    with closing(db.connect(paths, write=not args.dry_run, allow_unknown_schema=args.allow_unknown_schema)) as con:
         repo = T3Repository(con)
         options = importer.ImportOptions(args.project, args.create_project, args.no_worktree)
         plan = importer.plan_import(
             repo, (claude_transcript.parse(p) for p in sources), options, t3_worktrees=paths.t3_worktrees
         )
-        if not args.all:
+        if args.all:
+            _print_missing_projects(plan, out)
+        else:
             for t, reason in plan.skipped:
                 print(f"skip {t.session_id}: {reason.value} ({t.cwd or '?'})", file=out)
-        missing = plan.missing_projects()
-        if args.all and missing:
-            print("no T3 project for these directories (sessions):", file=out)
-            for cwd, count in missing.most_common(15):
-                print(f"  {count:5}  {cwd}", file=out)
         if args.dry_run or not plan.items:
             for item in plan.items:
                 print(f"would import {_describe(item)}", file=out)
@@ -90,11 +87,17 @@ def cmd_import(args, paths: Paths, out: TextIO) -> int:
         for result in importer.apply_import(repo, store, plan):
             copied = f" (transcript copied to {result.copied_to.parent.name})" if result.copied_to else ""
             print(f"imported {_describe(result.item)}{copied}", file=out)
-        print(_summary(plan.counts()), file=out)
-        print("Start T3 Code: it picks the new threads up on startup.", file=out)
-        return 0
-    finally:
-        con.close()
+    print(_summary(plan.counts()), file=out)
+    print("Start T3 Code: it picks the new threads up on startup.", file=out)
+    return 0
+
+
+def _print_missing_projects(plan: importer.ImportPlan, out: TextIO) -> None:
+    missing = plan.missing_projects()
+    if missing:
+        print("no T3 project for these directories (sessions):", file=out)
+        for cwd, count in missing.most_common(15):
+            print(f"  {count:5}  {cwd}", file=out)
 
 
 def _describe(item: importer.PlannedImport) -> str:
@@ -103,7 +106,7 @@ def _describe(item: importer.PlannedImport) -> str:
     return f"{t.session_id} -> {item.project.title}: {t.title[:60]!r} [{len(t.messages)} msgs]{worktree}"
 
 
-def cmd_export(args, paths: Paths, out: TextIO) -> int:
+def cmd_export(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
     if not args.threads and not args.all:
         raise T3ccError("give thread ids (see `t3cc list-t3`), or --all")
     store = ClaudeStore(paths.claude_projects)
@@ -120,7 +123,7 @@ def cmd_export(args, paths: Paths, out: TextIO) -> int:
     return 0
 
 
-def cmd_sync(args, paths: Paths, out: TextIO) -> int:
+def cmd_sync(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
     if not args.threads and not args.all:
         raise T3ccError("give imported thread or session ids, or --all")
     store = ClaudeStore(paths.claude_projects)

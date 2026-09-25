@@ -2,6 +2,7 @@
 
 import json
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -49,7 +50,7 @@ def extract_text(content: Any) -> str:
     return "\n".join(part for part in parts if part)
 
 
-def _records(path: Path):
+def _records(path: Path) -> Iterator[dict]:
     with path.open(encoding="utf-8", errors="replace") as fh:
         for line in fh:
             try:
@@ -78,7 +79,9 @@ def parse(path: Path) -> Transcript:
         custom_title = _clean(record.get("customTitle")) or custom_title
         cwd = cwd or _clean(record.get("cwd")) or None
         branch = _clean(record.get("gitBranch")) or branch
-        message = record.get("message") if isinstance(record.get("message"), dict) else {}
+        message = record.get("message")
+        if not isinstance(message, dict):
+            message = {}
         record_model = _clean(message.get("model"))
         if record_model and record_model != "<synthetic>":
             model = record_model

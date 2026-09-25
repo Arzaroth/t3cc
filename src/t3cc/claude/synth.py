@@ -1,12 +1,12 @@
 """Build a Claude Code transcript from plain turns, resumable with `claude --resume`."""
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 CONTINUATION_PROMPT = "(conversation continued from T3 Code)"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Turn:
     role: str
     text: str
@@ -21,7 +21,7 @@ def merge_turns(turns: list[Turn]) -> list[Turn]:
         if not text:
             continue
         if merged and merged[-1].role == turn.role:
-            merged[-1].text += "\n\n" + text
+            merged[-1] = replace(merged[-1], text=merged[-1].text + "\n\n" + text)
         else:
             merged.append(Turn(turn.role, text, turn.timestamp))
     if merged and merged[0].role != "user":
