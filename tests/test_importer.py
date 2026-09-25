@@ -1,4 +1,5 @@
 import json
+import os
 from collections import Counter
 from pathlib import Path
 
@@ -24,11 +25,17 @@ SID = "22222222-2222-4222-8222-222222222222"
 PROJECTS = [Project("p1", "repo", "/r/repo"), Project("p2", "nested", "/r/repo/nested"), Project("p3", "x", "/x/")]
 
 
+def resolved_id(cwd, override, create):
+    project = resolve_project(PROJECTS, cwd, override, create)
+    assert project is not None
+    return project.id
+
+
 def test_resolve_project_by_cwd():
-    assert resolve_project(PROJECTS, "/r/repo", None, False).id == "p1"
-    assert resolve_project(PROJECTS, "/r/repo/nested/deep", None, False).id == "p2"
-    assert resolve_project(PROJECTS, "/x/sub", None, False).id == "p3"
-    assert resolve_project(PROJECTS, "/r/repo.worktrees/feature/a", None, False).id == "p1"
+    assert resolved_id("/r/repo", None, False) == "p1"
+    assert resolved_id("/r/repo/nested/deep", None, False) == "p2"
+    assert resolved_id("/x/sub", None, False) == "p3"
+    assert resolved_id("/r/repo.worktrees/feature/a", None, False) == "p1"
     assert resolve_project(PROJECTS, "/r/repository", None, False) is None
     assert resolve_project(PROJECTS, None, None, True) is None
 
@@ -39,9 +46,9 @@ def test_resolve_project_creates_when_asked():
 
 
 def test_resolve_project_override(tmp_path):
-    assert resolve_project(PROJECTS, "/elsewhere", "p2", False).id == "p2"
-    assert resolve_project(PROJECTS, None, "repo", False).id == "p1"
-    assert resolve_project(PROJECTS, None, "/r/repo", False).id == "p1"
+    assert resolved_id("/elsewhere", "p2", False) == "p2"
+    assert resolved_id(None, "repo", False) == "p1"
+    assert resolved_id(None, "/r/repo", False) == "p1"
     assert resolve_project(PROJECTS, None, "nope", False) is None
     created = resolve_project(PROJECTS, None, str(tmp_path / "fresh"), True)
     assert created == Project(None, "fresh", str(tmp_path / "fresh"))
@@ -50,7 +57,7 @@ def test_resolve_project_override(tmp_path):
 def fake_transcript(cwd, branch="feat", session_id=SID, messages=True):
     return transcript.Transcript(
         path=Path("/t.jsonl"),
-        stat=None,
+        stat=os.stat(__file__),
         session_id=session_id,
         title="T",
         model=None,
@@ -79,22 +86,23 @@ def test_place():
 
 def test_classify():
     worktrees = Path("/h/.t3/worktrees")
-    kwargs = {"native": {"n" * 8 + SID[8:]}, "imported": {SID}, "t3_worktrees": worktrees}
-    assert classify(fake_transcript("/r", session_id="not-a-uuid"), **kwargs) is Skip.EMPTY
-    assert classify(fake_transcript("/r", messages=False), **kwargs) is Skip.EMPTY
+
+    def check(t, native=frozenset({"n" * 8 + SID[8:]}), imported=frozenset({SID})):
+        return classify(t, native=set(native), imported=set(imported), t3_worktrees=worktrees)
+
+    assert check(fake_transcript("/r", session_id="not-a-uuid")) is Skip.EMPTY
+    assert check(fake_transcript("/r", messages=False)) is Skip.EMPTY
     other = "33333333-3333-4333-8333-333333333333"
-    assert classify(fake_transcript("/h/.t3/worktrees/a/b", session_id=other), **kwargs) is Skip.T3_NATIVE
-    assert classify(fake_transcript(None, session_id=other), **kwargs) is None
-    assert classify(fake_transcript("/r", session_id=other), **kwargs) is None
-    kwargs["native"] = {SID}
-    assert classify(fake_transcript("/r"), **kwargs) is Skip.EXISTS
-    kwargs["imported"] = set()
-    assert classify(fake_transcript("/r"), **kwargs) is Skip.T3_NATIVE
+    assert check(fake_transcript("/h/.t3/worktrees/a/b", session_id=other)) is Skip.T3_NATIVE
+    assert check(fake_transcript(None, session_id=other)) is None
+    assert check(fake_transcript("/r", session_id=other)) is None
+    assert check(fake_transcript("/r"), native={SID}) is Skip.EXISTS
+    assert check(fake_transcript("/r"), native={SID}, imported=set()) is Skip.T3_NATIVE
 
 
 def test_plan_counts_and_missing():
     plan = ImportPlan(
-        items=[PlannedImport(fake_transcript("/r"), PROJECTS[0], None)],
+        items=[PlannedImport(fake_transcript("/r"), PROJECTS[0], Placement("/r", None, None, False))],
         skipped=[
             (fake_transcript("/a"), Skip.NO_PROJECT),
             (fake_transcript(None), Skip.NO_PROJECT),

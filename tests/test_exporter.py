@@ -1,27 +1,36 @@
+import dataclasses
 import json
+from pathlib import Path
 
 import pytest
 
 from conftest import user
 from t3cc.claude.store import ClaudeStore
 from t3cc.errors import T3ccError
-from t3cc.exporter import ExportKind, export_thread, resolve_cwd, select_threads
+from t3cc.exporter import ExportKind, ExportResult, export_thread, resolve_cwd, select_threads
 from t3cc.t3.repo import T3Repository, Thread
+
+BASE_THREAD = Thread(
+    id="t1",
+    title="T",
+    branch=None,
+    worktree_path=None,
+    model=None,
+    updated_at="u",
+    workspace_root="/r",
+    provider=None,
+    resume_session_id=None,
+    runtime_cwd=None,
+)
 
 
 def make_thread(thread_id="t1", root="/r", **kw):
-    fields = {
-        "title": "T",
-        "branch": None,
-        "worktree_path": None,
-        "model": None,
-        "updated_at": "u",
-        "workspace_root": root,
-        "provider": None,
-        "resume_session_id": None,
-        "runtime_cwd": None,
-    } | kw
-    return Thread(id=thread_id, **fields)
+    return dataclasses.replace(BASE_THREAD, id=thread_id, workspace_root=root, **kw)
+
+
+def path_of(result: ExportResult) -> Path:
+    assert result.path is not None
+    return result.path
 
 
 def test_select_threads(tmp_path):
@@ -62,9 +71,9 @@ def test_export_native_thread_in_place(world):
 def test_export_native_thread_elsewhere(world, tmp_path):
     repo, store, thread, sid, _ = setup_native(world)
     dry = export_thread(repo, store, thread, target=str(tmp_path), dry_run=True)
-    assert dry.kind is ExportKind.COPIED and not dry.path.exists()
+    assert dry.kind is ExportKind.COPIED and not path_of(dry).exists()
     done = export_thread(repo, store, thread, target=str(tmp_path))
-    assert done.kind is ExportKind.COPIED and done.path.exists()
+    assert done.kind is ExportKind.COPIED and path_of(done).exists()
     assert export_thread(repo, store, thread, target=str(tmp_path)).kind is ExportKind.NATIVE
 
 
@@ -92,10 +101,10 @@ def test_export_synthesizes_non_claude_threads(world, tmp_path):
     repo, store = T3Repository(world.db()), ClaudeStore(world.paths.claude_projects)
     thread = repo.threads()[0]
     dry = export_thread(repo, store, thread, dry_run=True)
-    assert dry.kind is ExportKind.SYNTHESIZED and not dry.path.exists()
+    assert dry.kind is ExportKind.SYNTHESIZED and not path_of(dry).exists()
     result = export_thread(repo, store, thread)
     assert result.turns == 4 and result.cwd == str(tmp_path)
-    records = [json.loads(line) for line in result.path.read_text().splitlines()]
+    records = [json.loads(line) for line in path_of(result).read_text().splitlines()]
     assert [r["type"] for r in records] == ["user", "assistant", "user", "assistant", "ai-title"]
     assert records[2]["message"]["content"] == "[attachment: shot.png]\n\ndo it"
     assert records[1]["message"]["model"] == "gpt-6" and records[0]["gitBranch"] == "dev"
@@ -107,7 +116,7 @@ def test_export_claude_thread_without_transcript_uses_default_model(world, tmp_p
     world.thread(project, provider="claudeAgent", resume="missing", raw_model_json="{}", messages=[("user", "q")])
     repo = T3Repository(world.db())
     result = export_thread(repo, ClaudeStore(world.paths.claude_projects), repo.threads()[0])
-    record = json.loads(result.path.read_text().splitlines()[0])
+    record = json.loads(path_of(result).read_text().splitlines()[0])
     assert result.kind is ExportKind.SYNTHESIZED and record["sessionId"] == result.session_id
 
 

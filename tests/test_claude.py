@@ -112,6 +112,7 @@ def test_store_copy_into(world):
     source = world.transcript("/a", [user("x")])
     dest = store.copy_into(source, "/b")
     assert dest == store.project_dir("/b") / source.name
+    assert dest is not None
     assert dest.read_text() == source.read_text()
     assert store.copy_into(source, "/b") is None
 
