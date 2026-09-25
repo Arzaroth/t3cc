@@ -6,6 +6,10 @@ uv = "latest"
 description = "Install all dependencies (including dev)"
 run = "uv sync"
 
+[tasks.typecheck]
+description = "Type-check with ty"
+run = "uv run ty check"
+
 [tasks.lint]
 description = "Lint with ruff"
 run = "uv run ruff check"
@@ -14,9 +18,17 @@ run = "uv run ruff check"
 description = "Format with ruff"
 run = "uv run ruff format"
 
+[tasks.check]
+description = "Typecheck + lint"
+depends = ["typecheck", "lint"]
+
 [tasks.test]
 description = "Run pytest (fails under 100% line and branch coverage)"
 run = "uv run pytest"
+
+[tasks.build]
+description = "Build wheel"
+run = "uv build"
 
 [tasks.install-tool]
 description = "Put t3cc on your PATH as an editable uv tool, so repo edits apply immediately"
