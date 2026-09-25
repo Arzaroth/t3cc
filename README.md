@@ -30,6 +30,9 @@ t3cc import 3f8fa3a6 --project ~/Repos/app
 
 t3cc export <thread-id>       # prints the `claude --resume` command
 t3cc export --all --project ~/Repos/app
+
+t3cc sync --all --dry-run    # which originals T3 has moved past
+t3cc sync --all
 ```
 
 ### Import
@@ -50,6 +53,29 @@ t3cc export --all --project ~/Repos/app
   `--to DIR` copies the transcript under DIR.
 - Other threads (Codex), or any thread with `--flatten`, are rebuilt from T3's messages as a new Claude Code
   session. Only text and attachment names carry over, not tool calls.
+
+### Sync
+
+Continuing an imported thread in T3 normally needs no sync: T3 resumes the same Claude session from the
+directory it started in, Claude Code appends to the same transcript, and `claude --resume <session>` picks up
+T3's turns.
+
+The exception is a thread T3 runs from another directory (`--no-worktree`, or a session whose directory was
+gone at import). Claude Code keeps one transcript per directory, so T3's turns go to a copy and the original
+stops moving. `t3cc sync` compares the two line by line:
+
+| State          | Meaning                                                   | Action                       |
+| -------------- | --------------------------------------------------------- | ---------------------------- |
+| `same-file`    | T3 writes to the original                                 | none                         |
+| `in-sync`      | both files are identical                                  | none                         |
+| `fast-forward` | the original is a strict prefix of T3's copy              | replace the original         |
+| `behind`       | the original has more (continued in Claude Code)          | none                         |
+| `diverged`     | both sides changed                                        | replace only with `--force`  |
+| `forked`       | T3 moved the thread to another session id                 | none, prints the new id      |
+
+The original is backed up to `<session>.jsonl.t3cc-<timestamp>.bak` and replaced atomically. Nothing is
+written while a `claude` process has the session open. The command exits 1 while a session stays diverged or
+blocked.
 
 ## Caveats
 
