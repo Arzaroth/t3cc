@@ -128,6 +128,7 @@ def _export_line(result: exporter.ExportResult, dry_run: bool) -> str:
     if result.kind is ExportKind.NATIVE:
         return f"{head}  already a Claude Code session: {resume}"
     if result.kind is ExportKind.COPIED:
+        assert result.path is not None
         verb = "would copy" if dry_run else "copied"
         return f"{head}  {verb} to {result.path.parent.name}: {resume}"
     verb = "would write" if dry_run else "wrote"

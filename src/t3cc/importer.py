@@ -140,14 +140,14 @@ def plan_import(
             continue
         seen.add(transcript.session_id)
         reason = classify(transcript, native=native, imported=imported, t3_worktrees=t3_worktrees)
-        project = None if reason else resolve_project(projects, transcript.cwd, options.project, options.create_project)
-        if reason is None and project is None:
+        if reason is None:
+            project = resolve_project(projects, transcript.cwd, options.project, options.create_project)
+            if project is not None:
+                placement = place(transcript, project, no_worktree=options.no_worktree, is_dir=is_dir)
+                plan.items.append(PlannedImport(transcript, project, placement))
+                continue
             reason = Skip.NO_PROJECT
-        if reason:
-            plan.skipped.append((transcript, reason))
-            continue
-        placement = place(transcript, project, no_worktree=options.no_worktree, is_dir=is_dir)
-        plan.items.append(PlannedImport(transcript, project, placement))
+        plan.skipped.append((transcript, reason))
     return plan
 
 

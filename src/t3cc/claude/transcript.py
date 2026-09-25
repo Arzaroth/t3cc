@@ -4,6 +4,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from t3cc import timeutil
 
@@ -34,7 +35,7 @@ class Transcript:
         return any(m.role == "user" for m in self.messages)
 
 
-def extract_text(content: object) -> str:
+def extract_text(content: Any) -> str:
     if isinstance(content, str):
         return content.strip()
     if not isinstance(content, list):

@@ -29,10 +29,11 @@ class EventWriter:
             "WHERE aggregate_kind = ? AND stream_id = ?",
             (aggregate_kind, stream_id),
         ).fetchone()[0]
-        cursor = self.con.execute(
+        row = self.con.execute(
             """INSERT INTO orchestration_events (event_id, aggregate_kind, stream_id, stream_version, event_type,
                  occurred_at, command_id, causation_event_id, correlation_id, actor_kind, payload_json, metadata_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 'client', ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 'client', ?, ?)
+               RETURNING sequence""",
             (
                 new_id(),
                 aggregate_kind,
@@ -45,8 +46,8 @@ class EventWriter:
                 json.dumps(payload, ensure_ascii=False),
                 json.dumps(metadata or {}),
             ),
-        )
-        return cursor.lastrowid
+        ).fetchone()
+        return row[0]
 
     def receipt(self, *, command_id: str, aggregate_kind: str, aggregate_id: str, accepted_at: str, sequence: int):
         self.con.execute(
