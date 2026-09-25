@@ -7,7 +7,7 @@ import pytest
 from t3cc.errors import T3ccError
 from t3cc.t3 import db
 from t3cc.t3.events import Event, EventWriter
-from t3cc.t3.repo import T3Repository, Thread, imported_thread_id, pick_threads
+from t3cc.t3.repo import NewProject, T3Repository, Thread, imported_thread_id, pick_threads
 
 
 def fake_proc(tmp_path, pid, cmdline):
@@ -119,12 +119,12 @@ def test_repo_session_sets(world):
 
 def test_repo_create_project(world):
     repo = T3Repository(world.db())
-    project = repo.create_project("/home/me/app", "2026-01-01T00:00:00.000Z")
+    project = repo.create_project(NewProject("/home/me/app"), "2026-01-01T00:00:00.000Z")
     assert project.title == "app"
     event = repo.con.execute("SELECT * FROM orchestration_events").fetchone()
     assert event["event_type"] == "project.created" and event["stream_id"] == project.id
     assert json.loads(event["payload_json"])["workspaceRoot"] == "/home/me/app"
-    assert repo.create_project("/", "t").title == "/"
+    assert repo.create_project(NewProject("/"), "t").title == "/"
 
 
 def test_repo_bind_claude_session_keeps_existing(world):

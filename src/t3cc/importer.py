@@ -16,9 +16,10 @@ from t3cc import timeutil
 from t3cc.claude.store import ClaudeStore
 from t3cc.claude.transcript import DEFAULT_MODEL, Transcript
 from t3cc.t3.events import Event
-from t3cc.t3.repo import CLAUDE_PROVIDER, Project, T3Repository, imported_thread_id
+from t3cc.t3.repo import CLAUDE_PROVIDER, NewProject, Project, T3Repository, imported_thread_id
 
 SESSION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.I)
+WORKTREES_PARENT = re.compile(r"^(.*)\.worktrees/")
 HISTORY_IMPORT = {"historyImport": True}
 
 
@@ -47,7 +48,7 @@ class Placement:
 @dataclass(frozen=True)
 class PlannedImport:
     transcript: Transcript
-    project: Project
+    project: Project | NewProject
     placement: Placement
 
     @property
@@ -77,33 +78,33 @@ class ImportResult:
     copied_to: Path | None
 
 
-def _within(path: str, root: str) -> bool:
-    root = root.rstrip("/")
-    return path == root or path.startswith(root + "/")
-
-
-def resolve_project(projects: list[Project], cwd: str | None, override: str | None, create: bool) -> Project | None:
+def resolve_project(
+    projects: list[Project], cwd: str | None, override: str | None, create: bool
+) -> Project | NewProject | None:
     if override:
-        resolved = str(Path(override).expanduser().resolve())
-        match = next(
-            (p for p in projects if override in (p.id, p.title) or p.workspace_root == resolved),
-            None,
-        )
-        return match or (Project(None, Path(resolved).name, resolved) if create else None)
-    if not cwd:
+        root = str(Path(override).expanduser().resolve())
+        found = next((p for p in projects if override in (p.id, p.title) or p.workspace_root == root), None)
+    elif cwd:
+        root, found = cwd, _enclosing_project(projects, cwd)
+    else:
         return None
+    return found or (NewProject(root) if create else None)
+
+
+def _enclosing_project(projects: list[Project], cwd: str) -> Project | None:
     candidates = [cwd]
-    worktree_parent = re.match(r"^(.*)\.worktrees/", cwd)
-    if worktree_parent:
-        candidates.append(worktree_parent.group(1))
+    if worktrees := WORKTREES_PARENT.match(cwd):
+        candidates.append(worktrees.group(1))
     for candidate in candidates:
-        matches = [p for p in projects if _within(candidate, p.workspace_root)]
+        matches = [p for p in projects if Path(candidate).is_relative_to(p.workspace_root)]
         if matches:
             return max(matches, key=lambda p: len(p.workspace_root))
-    return Project(None, Path(cwd).name, cwd) if create else None
+    return None
 
 
-def place(transcript: Transcript, project: Project, *, no_worktree: bool, is_dir: Callable[[str], bool]) -> Placement:
+def place(
+    transcript: Transcript, project: Project | NewProject, *, no_worktree: bool, is_dir: Callable[[str], bool]
+) -> Placement:
     root = project.workspace_root
     cwd = transcript.cwd or root
     if cwd == root:
@@ -118,7 +119,7 @@ def classify(transcript: Transcript, *, native: set[str], imported: set[str], t3
         return Skip.EMPTY
     if transcript.session_id in imported:
         return Skip.EXISTS
-    if transcript.session_id in native or _within(transcript.cwd or "", str(t3_worktrees)):
+    if transcript.session_id in native or (transcript.cwd and Path(transcript.cwd).is_relative_to(t3_worktrees)):
         return Skip.T3_NATIVE
     return None
 
@@ -140,14 +141,12 @@ def plan_import(
             continue
         seen.add(transcript.session_id)
         reason = classify(transcript, native=native, imported=imported, t3_worktrees=t3_worktrees)
-        if reason is None:
-            project = resolve_project(projects, transcript.cwd, options.project, options.create_project)
-            if project is not None:
-                placement = place(transcript, project, no_worktree=options.no_worktree, is_dir=is_dir)
-                plan.items.append(PlannedImport(transcript, project, placement))
-                continue
-            reason = Skip.NO_PROJECT
-        plan.skipped.append((transcript, reason))
+        project = None if reason else resolve_project(projects, transcript.cwd, options.project, options.create_project)
+        if project is None:
+            plan.skipped.append((transcript, reason or Skip.NO_PROJECT))
+        else:
+            placement = place(transcript, project, no_worktree=options.no_worktree, is_dir=is_dir)
+            plan.items.append(PlannedImport(transcript, project, placement))
     return plan
 
 
@@ -215,15 +214,15 @@ def apply_import(
     repo: T3Repository, store: ClaudeStore, plan: ImportPlan, now: str | None = None
 ) -> list[ImportResult]:
     now = now or timeutil.now_iso()
-    created: dict[str, Project] = {}
+    created: dict[NewProject, Project] = {}
     results = []
     with repo.con:
         for item in plan.items:
             project = item.project
-            if project.id is None:
-                root = project.workspace_root
-                project = created.get(root) or repo.create_project(root, now)
-                created[root] = project
+            if isinstance(project, NewProject):
+                if project not in created:
+                    created[project] = repo.create_project(project, now)
+                project = created[project]
             copied = (
                 store.copy_into(item.transcript.path, item.placement.cwd) if item.placement.copy_transcript else None
             )

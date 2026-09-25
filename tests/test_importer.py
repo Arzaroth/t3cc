@@ -19,7 +19,7 @@ from t3cc.importer import (
     plan_import,
     resolve_project,
 )
-from t3cc.t3.repo import Project, T3Repository
+from t3cc.t3.repo import NewProject, Project, T3Repository
 
 SID = "22222222-2222-4222-8222-222222222222"
 PROJECTS = [Project("p1", "repo", "/r/repo"), Project("p2", "nested", "/r/repo/nested"), Project("p3", "x", "/x/")]
@@ -27,7 +27,7 @@ PROJECTS = [Project("p1", "repo", "/r/repo"), Project("p2", "nested", "/r/repo/n
 
 def resolved_id(cwd, override, create):
     project = resolve_project(PROJECTS, cwd, override, create)
-    assert project is not None
+    assert isinstance(project, Project)
     return project.id
 
 
@@ -41,7 +41,7 @@ def test_resolve_project_by_cwd():
 
 
 def test_resolve_project_creates_when_asked():
-    assert resolve_project(PROJECTS, "/new/app", None, True) == Project(None, "app", "/new/app")
+    assert resolve_project(PROJECTS, "/new/app", None, True) == NewProject("/new/app")
     assert resolve_project(PROJECTS, "/other.worktrees/b", None, False) is None
 
 
@@ -51,7 +51,7 @@ def test_resolve_project_override(tmp_path):
     assert resolved_id(None, "/r/repo", False) == "p1"
     assert resolve_project(PROJECTS, None, "nope", False) is None
     created = resolve_project(PROJECTS, None, str(tmp_path / "fresh"), True)
-    assert created == Project(None, "fresh", str(tmp_path / "fresh"))
+    assert created == NewProject(str(tmp_path / "fresh"))
 
 
 def fake_transcript(cwd, branch="feat", session_id=SID, messages=True):

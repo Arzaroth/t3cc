@@ -12,9 +12,20 @@ CLAUDE_PROVIDER = "claudeAgent"
 
 @dataclass(frozen=True)
 class Project:
-    id: str | None
+    id: str
     title: str
     workspace_root: str
+
+
+@dataclass(frozen=True)
+class NewProject:
+    """A project to create for a workspace root no T3 project covers yet."""
+
+    workspace_root: str
+
+    @property
+    def title(self) -> str:
+        return Path(self.workspace_root).name or self.workspace_root
 
 
 @dataclass(frozen=True)
@@ -105,19 +116,19 @@ class T3Repository:
         )
         return {stream_id[len(prefix) :] for (stream_id,) in rows}
 
-    def create_project(self, workspace_root: str, now: str) -> Project:
-        project_id, title = new_id(), Path(workspace_root).name or workspace_root
+    def create_project(self, new: NewProject, now: str) -> Project:
+        project = Project(new_id(), new.title, new.workspace_root)
         payload = {
-            "projectId": project_id,
-            "title": title,
-            "workspaceRoot": workspace_root,
+            "projectId": project.id,
+            "title": project.title,
+            "workspaceRoot": project.workspace_root,
             "defaultModelSelection": None,
             "scripts": [],
             "createdAt": now,
             "updatedAt": now,
         }
-        self.events.command("project", project_id, [Event("project.created", now, payload)])
-        return Project(project_id, title, workspace_root)
+        self.events.command("project", project.id, [Event("project.created", now, payload)])
+        return project
 
     def bind_claude_session(self, *, thread_id: str, session_id: str, cwd: str, source: dict, now: str) -> None:
         self.con.execute(
