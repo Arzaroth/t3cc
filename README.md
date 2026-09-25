@@ -100,6 +100,18 @@ mise run check       # ty + ruff
 mise run fmt
 ```
 
+### Releasing
+
+Bump the version with `uv version --bump minor` (or `patch`), move the `[Unreleased]` notes in `CHANGELOG.md`
+under the new version, commit, then tag and push:
+
+```sh
+git tag v0.2.0 && git push origin master v0.2.0
+```
+
+The release workflow checks the tag against `pyproject.toml`, reruns the checks, and publishes a GitHub
+release with the wheel, the sdist and the changelog section as notes.
+
 ## License
 
 MIT
