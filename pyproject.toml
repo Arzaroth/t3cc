@@ -11,6 +11,9 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = []
 
+[project.scripts]
+t3cc = "t3cc.cli:main"
+
 [dependency-groups]
 dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6"]
 
