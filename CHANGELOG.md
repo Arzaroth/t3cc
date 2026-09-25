@@ -7,11 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- `t3cc list-t3` marks a thread `claude` only when T3 runs it on Claude and its
-  transcript exists, the same test `t3cc export` uses.
-
 ## [0.1.0] - 2026-09-25
 
 ### Added
@@ -31,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a session continued in Claude Code as behind, and overwrites a diverged one
   only with `--force`, after a backup.
 - `t3cc list-claude` and `t3cc list-t3` show what each side holds and which
-  Claude sessions T3 already has.
+  Claude sessions T3 already has. `list-t3` marks a thread `claude` when T3 runs
+  it on Claude and its transcript exists, the same test `t3cc export` uses.
 - Imports refuse to run while T3 Code is open, take a backup of its database
   first, and refuse schema versions they were not checked against.
