@@ -207,3 +207,19 @@ def test_repo_threads_and_messages(world):
         ("assistant", "a", ()),
         ("assistant", "b", ()),
     ]
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"importedTranscripts": [{"filePath": "/c/s.jsonl"}, {"filePath": "/d/s.jsonl"}]}, "/c/s.jsonl"),
+        ({"importedTranscripts": []}, None),
+        ({"importedTranscripts": "nope"}, None),
+        ({"importedTranscripts": ["nope"]}, None),
+        ({"importedTranscripts": [{"filePath": 3}]}, None),
+        ({"cwd": "/c"}, None),
+    ],
+)
+def test_repo_threads_expose_imported_transcript(world, payload, expected):
+    world.thread(world.project("/p"), provider="claudeAgent", raw_payload=json.dumps(payload))
+    assert T3Repository(world.db()).threads()[0].imported_from == expected

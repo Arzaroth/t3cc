@@ -27,6 +27,7 @@ class Thread:
     provider: str | None
     resume_session_id: str | None
     runtime_cwd: str | None
+    imported_from: str | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,14 @@ def _json(value: str | None) -> dict:
     except ValueError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _imported_from(runtime_payload: dict) -> str | None:
+    transcripts = runtime_payload.get("importedTranscripts")
+    if not isinstance(transcripts, list) or not transcripts or not isinstance(transcripts[0], dict):
+        return None
+    path = transcripts[0].get("filePath")
+    return path if isinstance(path, str) else None
 
 
 def imported_thread_id(session_id: str) -> str:
@@ -132,21 +141,25 @@ class T3Repository:
                WHERE t.deleted_at IS NULL
                ORDER BY t.updated_at DESC, t.thread_id"""
         ).fetchall()
-        return [
-            Thread(
-                id=r["thread_id"],
-                title=r["title"],
-                branch=r["branch"],
-                worktree_path=r["worktree_path"],
-                model=_json(r["model_selection_json"]).get("model"),
-                updated_at=r["updated_at"],
-                workspace_root=r["workspace_root"],
-                provider=r["provider_name"],
-                resume_session_id=_json(r["resume_cursor_json"]).get("resume"),
-                runtime_cwd=_json(r["runtime_payload_json"]).get("cwd"),
+        threads = []
+        for r in rows:
+            runtime_payload = _json(r["runtime_payload_json"])
+            threads.append(
+                Thread(
+                    id=r["thread_id"],
+                    title=r["title"],
+                    branch=r["branch"],
+                    worktree_path=r["worktree_path"],
+                    model=_json(r["model_selection_json"]).get("model"),
+                    updated_at=r["updated_at"],
+                    workspace_root=r["workspace_root"],
+                    provider=r["provider_name"],
+                    resume_session_id=_json(r["resume_cursor_json"]).get("resume"),
+                    runtime_cwd=runtime_payload.get("cwd"),
+                    imported_from=_imported_from(runtime_payload),
+                )
             )
-            for r in rows
-        ]
+        return threads
 
     def thread_messages(self, thread_id: str) -> list[ThreadMessage]:
         rows = self.con.execute(
