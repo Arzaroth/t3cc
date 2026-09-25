@@ -1,3 +1,4 @@
+import datetime as dt
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -27,3 +28,8 @@ class Paths:
     @property
     def t3_worktrees(self) -> Path:
         return self.t3_home / "worktrees"
+
+
+def backup_path(path: Path, now: dt.datetime | None = None) -> Path:
+    stamp = (now or dt.datetime.now()).strftime("%Y%m%d-%H%M%S")
+    return path.with_name(f"{path.name}.t3cc-{stamp}.bak")

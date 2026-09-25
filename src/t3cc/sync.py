@@ -12,8 +12,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from t3cc import procs
 from t3cc.claude.store import ClaudeStore
 from t3cc.errors import T3ccError
+from t3cc.paths import backup_path
 from t3cc.t3.repo import Thread, pick_threads
 
 
@@ -47,19 +49,12 @@ def compare(original: list[bytes], t3_copy: list[bytes]) -> SyncState:
     return SyncState.DIVERGED
 
 
-def session_pid(session_id: str, proc_root: Path = Path("/proc")) -> int | None:
-    """A running `claude` process that has this session open, other than this one."""
+def session_pid(session_id: str, proc_root: Path = procs.PROC) -> int | None:
+    """A running `claude` process that has this session open."""
     needle = session_id.encode()
-    for entry in proc_root.iterdir():
-        if not entry.name.isdigit() or int(entry.name) == os.getpid():
-            continue
-        try:
-            args = (entry / "cmdline").read_bytes().split(b"\0")
-        except OSError:
-            continue
-        is_claude = any(os.path.basename(arg) == b"claude" for arg in args[:2])
-        if is_claude and any(arg.endswith(needle) for arg in args):
-            return int(entry.name)
+    for pid, args in procs.others(proc_root):
+        if any(os.path.basename(arg) == b"claude" for arg in args[:2]) and any(arg.endswith(needle) for arg in args):
+            return pid
     return None
 
 
@@ -84,7 +79,7 @@ def sync_thread(
     force: bool = False,
     dry_run: bool = False,
     now: dt.datetime | None = None,
-    proc_root: Path = Path("/proc"),
+    proc_root: Path = procs.PROC,
 ) -> SyncResult:
     if not thread.imported_from or not thread.resume_session_id:
         raise T3ccError(f"thread {thread.id} was not imported from Claude Code")
@@ -107,8 +102,7 @@ def sync_thread(
     pid = session_pid(thread.resume_session_id, proc_root)
     if pid:
         return result(state, blocked_by=pid)
-    stamp = (now or dt.datetime.now()).strftime("%Y%m%d-%H%M%S")
-    backup = original.with_name(f"{original.name}.t3cc-{stamp}.bak")
+    backup = backup_path(original, now)
     shutil.copy2(original, backup)
     staging = original.with_name(f"{original.name}.t3cc-tmp")
     shutil.copy2(t3_copy, staging)

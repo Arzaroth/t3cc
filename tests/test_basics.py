@@ -1,10 +1,11 @@
 import datetime as dt
+import os
 from pathlib import Path
 
 import pytest
 
-from t3cc import timeutil
-from t3cc.paths import Paths
+from t3cc import procs, timeutil
+from t3cc.paths import Paths, backup_path
 
 
 def test_paths_default_to_home(tmp_path):
@@ -23,6 +24,12 @@ def test_paths_honour_env(tmp_path):
 
 def test_paths_use_real_home_by_default():
     assert Paths.from_env({}).claude_projects == Path.home() / ".claude" / "projects"
+
+
+def test_backup_path_is_stamped_next_to_the_file():
+    moment = dt.datetime(2026, 1, 2, 3, 4, 5)
+    assert backup_path(Path("/d/state.sqlite"), moment) == Path("/d/state.sqlite.t3cc-20260102-030405.bak")
+    assert backup_path(Path("/d/s.jsonl")).name.startswith("s.jsonl.t3cc-")
 
 
 def test_to_iso_treats_naive_as_utc():
@@ -51,3 +58,13 @@ def test_now_iso_and_epoch():
 )
 def test_normalize(value, expected):
     assert timeutil.normalize(value, "fb") == expected
+
+
+def test_procs_read_other_processes_cmdlines(tmp_path):
+    for name, cmdline in {"7": b"claude\0--resume\0s", "8": None, str(os.getpid()): b"me", "self": b"x"}.items():
+        (tmp_path / name).mkdir()
+        if cmdline is not None:
+            (tmp_path / name / "cmdline").write_bytes(cmdline)
+    assert procs.cmdline(7, tmp_path) == [b"claude", b"--resume", b"s"]
+    assert procs.cmdline(8, tmp_path) is None
+    assert list(procs.others(tmp_path)) == [(7, [b"claude", b"--resume", b"s"])]
