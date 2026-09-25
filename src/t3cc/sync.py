@@ -35,8 +35,13 @@ class SyncResult:
     state: SyncState
     original: Path
     t3_copy: Path
+    replaces: bool = False
     backup: Path | None = None
     blocked_by: int | None = None
+
+    @property
+    def unresolved(self) -> bool:
+        return self.blocked_by is not None or (self.state is SyncState.DIVERGED and not self.replaces)
 
 
 def compare(original: list[bytes], t3_copy: list[bytes]) -> SyncState:
@@ -63,13 +68,9 @@ def select_imported(threads: list[Thread], refs: list[str]) -> list[Thread]:
     return pick_threads(imported, refs, noun="imported threads", keys=lambda t: (t.id, t.resume_session_id))
 
 
-def t3_copy_path(store: ClaudeStore, thread: Thread) -> Path:
-    cwd = thread.runtime_cwd or thread.worktree_path or thread.workspace_root
-    return store.project_dir(cwd) / f"{thread.resume_session_id}.jsonl"
-
-
-def _lines(path: Path) -> list[bytes]:
-    return path.read_bytes().splitlines()
+def t3_cwd(thread: Thread) -> str:
+    """Where T3 resumes the thread's Claude session, so where its transcript copy lives."""
+    return thread.runtime_cwd or thread.worktree_path or thread.workspace_root
 
 
 def sync_thread(
@@ -81,30 +82,33 @@ def sync_thread(
     now: dt.datetime | None = None,
     proc_root: Path = procs.PROC,
 ) -> SyncResult:
-    if not thread.imported_from or not thread.resume_session_id:
+    session_id = thread.resume_session_id
+    if not thread.imported_from or not session_id:
         raise T3ccError(f"thread {thread.id} was not imported from Claude Code")
     original = Path(thread.imported_from)
-    t3_copy = t3_copy_path(store, thread)
+    t3_copy = store.session_path(t3_cwd(thread), session_id)
 
-    def result(state: SyncState, **extra) -> SyncResult:
-        return SyncResult(thread, state, original, t3_copy, **extra)
+    def result(
+        state: SyncState, *, replaces: bool = False, backup: Path | None = None, blocked_by: int | None = None
+    ) -> SyncResult:
+        return SyncResult(thread, state, original, t3_copy, replaces, backup, blocked_by)
 
-    if thread.resume_session_id != original.stem:
+    if session_id != original.stem:
         return result(SyncState.FORKED)
     if t3_copy == original:
         return result(SyncState.SAME_FILE)
     if not original.is_file() or not t3_copy.is_file():
         return result(SyncState.MISSING)
-    state = compare(_lines(original), _lines(t3_copy))
-    wants_write = state is SyncState.FAST_FORWARD or (state is SyncState.DIVERGED and force)
-    if not wants_write or dry_run:
-        return result(state)
-    pid = session_pid(thread.resume_session_id, proc_root)
+    state = compare(original.read_bytes().splitlines(), t3_copy.read_bytes().splitlines())
+    replaces = state is SyncState.FAST_FORWARD or (state is SyncState.DIVERGED and force)
+    if not replaces or dry_run:
+        return result(state, replaces=replaces)
+    pid = session_pid(session_id, proc_root)
     if pid:
-        return result(state, blocked_by=pid)
+        return result(state, replaces=True, blocked_by=pid)
     backup = backup_path(original, now)
     shutil.copy2(original, backup)
     staging = original.with_name(f"{original.name}.t3cc-tmp")
     shutil.copy2(t3_copy, staging)
     os.replace(staging, original)
-    return result(state, backup=backup)
+    return result(state, replaces=True, backup=backup)

@@ -231,18 +231,24 @@ THREAD = Thread(
         (SyncState.FORKED, {}, f"T3 moved to another session, resume it with: claude --resume {OTHER}"),
         (SyncState.MISSING, {}, "missing transcript: /nope/original.jsonl, /nope/copy.jsonl"),
         (SyncState.BEHIND, {}, "original is ahead of T3's copy (continued in Claude Code), left alone"),
-        (SyncState.FAST_FORWARD, {"blocked_by": 7}, "fast-forward blocked: claude (pid 7) has the session open"),
+        (
+            SyncState.FAST_FORWARD,
+            {"replaces": True, "blocked_by": 7},
+            "fast-forward blocked: claude (pid 7) has the session open",
+        ),
     ],
 )
 def test_sync_messages(state, extra, expected):
     result = SyncResult(THREAD, state, Path("/nope/original.jsonl"), Path("/nope/copy.jsonl"), **extra)
-    assert cli._sync_message(result, force=False) == expected
+    assert cli._sync_message(result) == expected
 
 
 def test_sync_reports_blocked_sessions_as_unresolved(world, monkeypatch):
     imported_session(world, ["a"], ["a", "b"])
     monkeypatch.setattr(
         "t3cc.sync.sync_thread",
-        lambda store, thread, **kw: SyncResult(thread, SyncState.FAST_FORWARD, Path("/o"), Path("/c"), blocked_by=9),
+        lambda store, thread, **kw: SyncResult(
+            thread, SyncState.FAST_FORWARD, Path("/o"), Path("/c"), True, blocked_by=9
+        ),
     )
     assert run(world, "sync", "--all") == (1, f"{SID}  fast-forward blocked: claude (pid 9) has the session open\n")

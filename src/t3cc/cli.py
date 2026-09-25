@@ -129,12 +129,12 @@ def cmd_sync(args, paths: Paths, out: TextIO) -> int:
     unresolved = False
     for thread in threads:
         result = sync.sync_thread(store, thread, force=args.force, dry_run=args.dry_run)
-        unresolved |= result.blocked_by is not None or (result.state is SyncState.DIVERGED and not args.force)
-        print(f"{thread.resume_session_id}  {_sync_message(result, force=args.force)}", file=out)
+        unresolved |= result.unresolved
+        print(f"{thread.resume_session_id}  {_sync_message(result)}", file=out)
     return 1 if unresolved else 0
 
 
-def _sync_message(result: sync.SyncResult, *, force: bool) -> str:
+def _sync_message(result: sync.SyncResult) -> str:
     state = result.state
     if state is SyncState.SAME_FILE:
         return "in sync: T3 writes to the original transcript"
@@ -147,7 +147,7 @@ def _sync_message(result: sync.SyncResult, *, force: bool) -> str:
         return f"missing transcript: {', '.join(missing)}"
     if state is SyncState.BEHIND:
         return "original is ahead of T3's copy (continued in Claude Code), left alone"
-    if state is SyncState.DIVERGED and not force:
+    if state is SyncState.DIVERGED and not result.replaces:
         return "diverged: both sides changed. --force takes T3's version (the original is backed up)"
     action = "fast-forward" if state is SyncState.FAST_FORWARD else "overwrite diverged original"
     if result.blocked_by:

@@ -7,7 +7,7 @@ import pytest
 
 from t3cc.claude.store import ClaudeStore
 from t3cc.errors import T3ccError
-from t3cc.sync import SyncState, compare, select_imported, session_pid, sync_thread, t3_copy_path
+from t3cc.sync import SyncResult, SyncState, compare, select_imported, session_pid, sync_thread, t3_cwd
 from t3cc.t3.repo import Thread
 
 SID = "aaaaaaaa-0000-4000-8000-000000000001"
@@ -40,7 +40,7 @@ def setup(world, original, t3_copy, **thread_fields):
     store = ClaudeStore(world.paths.claude_projects)
     original_path = write(store.session_path("/started-here", SID), original)
     thread = dataclasses.replace(BASE, imported_from=str(original_path), **thread_fields)
-    copy_path = write(t3_copy_path(store, thread), t3_copy)
+    copy_path = write(store.session_path(t3_cwd(thread), SID), t3_copy)
     return store, thread, original_path, copy_path
 
 
@@ -94,12 +94,24 @@ def test_select_imported():
         select_imported(threads, [OTHER])
 
 
-def test_t3_copy_path_prefers_the_recorded_cwd():
-    store = ClaudeStore(Path("/p"))
-    assert t3_copy_path(store, BASE).parent == store.project_dir("/root")
+def test_t3_cwd_prefers_the_recorded_cwd():
+    assert t3_cwd(dataclasses.replace(BASE, runtime_cwd="/rc", worktree_path="/wt")) == "/rc"
     no_runtime = dataclasses.replace(BASE, runtime_cwd=None, worktree_path="/wt")
-    assert t3_copy_path(store, no_runtime).parent == store.project_dir("/wt")
-    assert t3_copy_path(store, dataclasses.replace(no_runtime, worktree_path=None)).parent == store.project_dir("/root")
+    assert t3_cwd(no_runtime) == "/wt"
+    assert t3_cwd(dataclasses.replace(no_runtime, worktree_path=None)) == "/root"
+
+
+@pytest.mark.parametrize(
+    ("state", "fields", "unresolved"),
+    [
+        (SyncState.IN_SYNC, {}, False),
+        (SyncState.DIVERGED, {}, True),
+        (SyncState.DIVERGED, {"replaces": True}, False),
+        (SyncState.FAST_FORWARD, {"replaces": True, "blocked_by": 3}, True),
+    ],
+)
+def test_sync_result_unresolved(state, fields, unresolved):
+    assert SyncResult(BASE, state, Path("/o"), Path("/c"), **fields).unresolved is unresolved
 
 
 @pytest.mark.parametrize("fields", [{"imported_from": None}, {"imported_from": "/x", "resume_session_id": None}])
@@ -137,14 +149,14 @@ def test_sync_leaves_the_original_alone(world, original, t3_copy, force, expecte
     store, thread, original_path, _ = setup(world, original, t3_copy)
     before = original_path.read_bytes()
     result = sync_thread(store, thread, force=force)
-    assert (result.state, result.backup) == (expected, None)
+    assert (result.state, result.replaces, result.backup) == (expected, False, None)
     assert original_path.read_bytes() == before
 
 
 def test_sync_dry_run_writes_nothing(world):
     store, thread, original_path, _ = setup(world, [b"a"], [b"a", b"b"])
     result = sync_thread(store, thread, dry_run=True)
-    assert result.state is SyncState.FAST_FORWARD and result.backup is None
+    assert (result.state, result.replaces, result.backup) == (SyncState.FAST_FORWARD, True, None)
     assert original_path.read_bytes() == b"a\n"
 
 
@@ -156,7 +168,7 @@ def test_sync_replaces_the_original_after_a_backup(world, tmp_path, original, fo
     store, thread, original_path, copy_path = setup(world, original, [b"a", b"b", b"c"])
     before = original_path.read_bytes()
     result = sync_thread(store, thread, force=force, now=NOW, proc_root=fake_proc(tmp_path, {}))
-    assert result.state is expected
+    assert (result.state, result.replaces) == (expected, True)
     backup = original_path.with_name(f"{SID}.jsonl.t3cc-20260925-120000.bak")
     assert result.backup == backup
     assert backup.read_bytes() == before
