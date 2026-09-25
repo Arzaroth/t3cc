@@ -1,12 +1,17 @@
 import io
+import json
 import os
 import runpy
+from pathlib import Path
 
 import pytest
 
 from conftest import assistant, user
 from t3cc import cli
+from t3cc.claude.store import ClaudeStore
 from t3cc.paths import claude_project_dir
+from t3cc.sync import SyncResult, SyncState
+from t3cc.t3.repo import Thread
 
 SID = "12345678-1234-4234-8234-123456789012"
 OTHER = "abcdef01-1234-4234-8234-123456789012"
@@ -155,3 +160,90 @@ def test_module_entry_point(monkeypatch, capsys):
         runpy.run_module("t3cc", run_name="__main__")
     assert exit_info.value.code == 0
     assert "t3cc" in capsys.readouterr().out
+
+
+def imported_session(world, original: list[str], t3_copy: list[str] | None) -> Path:
+    store = ClaudeStore(world.paths.claude_projects)
+    original_path = store.project_dir("/r/deleted") / f"{SID}.jsonl"
+    original_path.parent.mkdir(parents=True)
+    original_path.write_text("".join(line + "\n" for line in original))
+    if t3_copy is not None:
+        copy_path = store.project_dir("/r") / f"{SID}.jsonl"
+        copy_path.parent.mkdir(parents=True)
+        copy_path.write_text("".join(line + "\n" for line in t3_copy))
+    payload = {"cwd": "/r", "importedTranscripts": [{"filePath": str(original_path)}]}
+    project = world.project("/r")
+    world.thread(
+        project,
+        thread_id=f"import:claudeAgent:{SID}",
+        provider="claudeAgent",
+        resume=SID,
+        raw_payload=json.dumps(payload),
+    )
+    world.thread(project, thread_id="native", provider="claudeAgent", resume=OTHER)
+    return original_path
+
+
+def test_sync_requires_targets(world, capsys):
+    assert run(world, "sync")[0] == 1
+    assert "--all" in capsys.readouterr().err
+
+
+def test_sync_fast_forwards_the_original(world):
+    original = imported_session(world, ["a"], ["a", "b"])
+    assert run(world, "sync", "--all", "--dry-run") == (0, f"{SID}  would fast-forward\n")
+    assert original.read_text() == "a\n"
+    code, out = run(world, "sync", SID[:8])
+    assert code == 0 and f"{SID}  fast-forward done, backup: {SID}.jsonl.t3cc-" in out
+    assert original.read_text() == "a\nb\n"
+    assert run(world, "sync", "--all") == (0, f"{SID}  in sync\n")
+
+
+def test_sync_diverged_needs_force(world):
+    original = imported_session(world, ["a", "x"], ["a", "b"])
+    code, out = run(world, "sync", "--all")
+    assert code == 1 and "diverged: both sides changed" in out
+    assert run(world, "sync", "--all", "--force", "--dry-run") == (0, f"{SID}  would overwrite diverged original\n")
+    assert original.read_text() == "a\nx\n"
+    code, out = run(world, "sync", "--all", "--force")
+    assert code == 0 and "overwrite diverged original done" in out
+    assert original.read_text() == "a\nb\n"
+
+
+THREAD = Thread(
+    id="t",
+    title="T",
+    branch=None,
+    worktree_path=None,
+    model=None,
+    updated_at="u",
+    workspace_root="/r",
+    provider="claudeAgent",
+    resume_session_id=OTHER,
+    runtime_cwd="/r",
+    imported_from="/o.jsonl",
+)
+
+
+@pytest.mark.parametrize(
+    ("state", "extra", "expected"),
+    [
+        (SyncState.SAME_FILE, {}, "in sync: T3 writes to the original transcript"),
+        (SyncState.FORKED, {}, f"T3 moved to another session, resume it with: claude --resume {OTHER}"),
+        (SyncState.MISSING, {}, "missing transcript: /nope/original.jsonl, /nope/copy.jsonl"),
+        (SyncState.BEHIND, {}, "original is ahead of T3's copy (continued in Claude Code), left alone"),
+        (SyncState.FAST_FORWARD, {"blocked_by": 7}, "fast-forward blocked: claude (pid 7) has the session open"),
+    ],
+)
+def test_sync_messages(state, extra, expected):
+    result = SyncResult(THREAD, state, Path("/nope/original.jsonl"), Path("/nope/copy.jsonl"), **extra)
+    assert cli._sync_message(result, force=False) == expected
+
+
+def test_sync_reports_blocked_sessions_as_unresolved(world, monkeypatch):
+    imported_session(world, ["a"], ["a", "b"])
+    monkeypatch.setattr(
+        "t3cc.sync.sync_thread",
+        lambda store, thread, **kw: SyncResult(thread, SyncState.FAST_FORWARD, Path("/o"), Path("/c"), blocked_by=9),
+    )
+    assert run(world, "sync", "--all") == (1, f"{SID}  fast-forward blocked: claude (pid 9) has the session open\n")

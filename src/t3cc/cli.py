@@ -5,12 +5,13 @@ from collections.abc import Sequence
 from contextlib import closing
 from typing import TextIO
 
-from t3cc import __version__, exporter, importer
+from t3cc import __version__, exporter, importer, sync
 from t3cc.claude import transcript as claude_transcript
 from t3cc.claude.store import ClaudeStore
 from t3cc.errors import T3ccError
 from t3cc.exporter import ExportKind
 from t3cc.paths import Paths
+from t3cc.sync import SyncState
 from t3cc.t3 import db
 from t3cc.t3.repo import T3Repository
 
@@ -120,6 +121,43 @@ def cmd_export(args, paths: Paths, out: TextIO) -> int:
     return 0
 
 
+def cmd_sync(args, paths: Paths, out: TextIO) -> int:
+    if not args.threads and not args.all:
+        raise T3ccError("give imported thread or session ids, or --all")
+    store = ClaudeStore(paths.claude_projects)
+    with closing(db.connect(paths, write=False)) as con:
+        threads = sync.select_imported(T3Repository(con).threads(), args.threads)
+    unresolved = False
+    for thread in threads:
+        result = sync.sync_thread(store, thread, force=args.force, dry_run=args.dry_run)
+        unresolved |= result.blocked_by is not None or (result.state is SyncState.DIVERGED and not args.force)
+        print(f"{thread.resume_session_id}  {_sync_message(result, force=args.force)}", file=out)
+    return 1 if unresolved else 0
+
+
+def _sync_message(result: sync.SyncResult, *, force: bool) -> str:
+    state = result.state
+    if state is SyncState.SAME_FILE:
+        return "in sync: T3 writes to the original transcript"
+    if state is SyncState.IN_SYNC:
+        return "in sync"
+    if state is SyncState.FORKED:
+        return f"T3 moved to another session, resume it with: claude --resume {result.thread.resume_session_id}"
+    if state is SyncState.MISSING:
+        missing = [str(p) for p in (result.original, result.t3_copy) if not p.is_file()]
+        return f"missing transcript: {', '.join(missing)}"
+    if state is SyncState.BEHIND:
+        return "original is ahead of T3's copy (continued in Claude Code), left alone"
+    if state is SyncState.DIVERGED and not force:
+        return "diverged: both sides changed. --force takes T3's version (the original is backed up)"
+    action = "fast-forward" if state is SyncState.FAST_FORWARD else "overwrite diverged original"
+    if result.blocked_by:
+        return f"{action} blocked: claude (pid {result.blocked_by}) has the session open"
+    if result.backup:
+        return f"{action} done, backup: {result.backup.name}"
+    return f"would {action}"
+
+
 def _export_line(result: exporter.ExportResult, dry_run: bool) -> str:
     head = f"{result.thread.id[:36]:<36}"
     if result.kind is ExportKind.EMPTY:
@@ -172,6 +210,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("-n", "--dry-run", action="store_true")
     p.set_defaults(func=cmd_export)
+
+    p = sub.add_parser("sync", help="update imported sessions' original transcripts with what T3 added")
+    p.add_argument("threads", nargs="*", help="imported thread ids, session ids or prefixes")
+    p.add_argument("--all", action="store_true", help="every imported thread")
+    p.add_argument("--force", action="store_true", help="overwrite a diverged original (it is backed up first)")
+    p.add_argument("-n", "--dry-run", action="store_true")
+    p.set_defaults(func=cmd_sync)
     return parser
 
 
