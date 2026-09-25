@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "t3cc"
 version = "0.1.0"
 description = "Move conversation history between Claude Code and T3 Code"
+readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
