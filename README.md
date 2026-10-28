@@ -14,7 +14,13 @@ import and never imports the same session twice.
 
 ## Install
 
-```sh
+```bash
+uv tool install git+https://github.com/Arzaroth/t3cc@v0.1.0
+```
+
+Or, from a clone:
+
+```bash
 mise run install-tool    # uv tool install --editable, so edits to the repo apply immediately
 ```
 
