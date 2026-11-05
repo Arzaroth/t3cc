@@ -8,7 +8,7 @@ from t3cc import procs
 from t3cc.errors import T3ccError
 from t3cc.paths import Paths, backup_path
 
-# Event and projection shapes were checked against T3 Code 0.1.5, 0.1.6 and 0.1.7 (schema migrations 72, 76, 79).
+# Event and projection shapes were checked against T3 Code 0.1.5 to 0.1.7 (schema migrations 72, 76, 79).
 # T3 decodes every projection row it reads, so writing into an unchecked schema could break the threads it lists.
 SUPPORTED_SCHEMA_VERSIONS = frozenset({72, 76, 79})
 
@@ -43,7 +43,7 @@ def connect(
         pid = running_server_pid(paths.t3_runtime, proc_root)
         if pid:
             raise T3ccError(
-                f"T3 Code is running (server pid {pid}). Quit it first: it only picks up new events at startup."
+                f"T3 Code is running (server pid {pid}). Quit it first: it reads the database fresh at startup."
             )
         con = sqlite3.connect(paths.t3_db)
     else:
