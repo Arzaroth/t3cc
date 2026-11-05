@@ -335,6 +335,11 @@ def test_repo_link_pull_requests(world):
     repo.link_pull_requests(thread, [first], "2026-10-01T00:00:00.000Z")
     repo.link_pull_requests(thread, [{**first, "number": 2}], "2026-10-02T00:00:00.000Z")
     assert repo.pull_request_keys(thread) == {"h/r#1", "h/r#2"}
+    with repo.con:
+        repo.con.execute(
+            "UPDATE orchestration_v2_projection_threads SET payload_json = json_remove(payload_json, '$.pullRequests')"
+        )
+    assert repo.pull_request_keys(thread) == {"h/r#1", "h/r#2"}
     event = repo.con.execute("SELECT * FROM orchestration_events ORDER BY sequence DESC").fetchone()
     assert (event["event_type"], event["stream_id"], event["actor_kind"]) == (
         "thread.pull-request-synced",

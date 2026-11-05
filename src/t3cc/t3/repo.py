@@ -250,9 +250,19 @@ class T3Repository:
         return messages
 
     def pull_request_keys(self, thread_id: str) -> set[str]:
+        """Keys of the PRs the thread links now or that t3cc ever linked to it, so an unlinked PR stays unlinked."""
+        linked_by_t3cc = self.con.execute(
+            """SELECT payload_json FROM orchestration_events
+               WHERE aggregate_kind = 'thread' AND stream_id = ?
+                 AND event_type IN ('thread.created', 'thread.pull-request-synced')
+                 AND (event_id GLOB 'agent-session-import:*' OR event_id GLOB 't3cc:pull-request-link:*')""",
+            (thread_id,),
+        ).fetchall()
+        payloads = [self._thread_payload(thread_id), *(_json(row[0]) for row in linked_by_t3cc)]
         return {
             f"{link['host']}/{link['repository']}#{link['number']}".lower()
-            for link in self._thread_payload(thread_id).get("pullRequests") or []
+            for payload in payloads
+            for link in payload.get("pullRequests") or []
         }
 
     def link_pull_requests(self, thread_id: str, links: list[dict], now: str) -> None:

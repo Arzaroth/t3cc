@@ -273,3 +273,6 @@ def test_link_prs(world):
     assert len(list(world.paths.t3_db.parent.glob("*.bak"))) == 1
     code, out = run(world, "link-prs", "--all")
     assert code == 0 and out == "0 threads with new pull requests\n"
+    source.unlink()
+    code, out = run(world, "link-prs", "--all")
+    assert code == 0 and f"{SID}  skipped, its transcript is gone: {source}" in out

@@ -142,9 +142,9 @@ def cmd_link_prs(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
         raise T3ccError("give imported thread or session ids, or --all")
     with closing(db.connect(paths, write=not args.dry_run, allow_unknown_schema=args.allow_unknown_schema)) as con:
         repo = T3Repository(con)
-        planned = [
-            (t, importer.missing_pull_requests(repo, t)) for t in sync.select_imported(repo.threads(), args.threads)
-        ]
+        selected = sync.select_imported(repo.threads(), args.threads)
+        gone = [t for t in selected if t.imported_from and not Path(t.imported_from).is_file()]
+        planned = [(t, importer.missing_pull_requests(repo, t)) for t in selected if t not in gone]
         planned = [(thread, prs) for thread, prs in planned if prs]
         if planned and not args.dry_run:
             print(f"backup: {db.backup(con, paths.t3_db)}", file=out)
@@ -155,6 +155,8 @@ def cmd_link_prs(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
         verb = "would link" if args.dry_run else "linked"
         for thread, prs in planned:
             print(f"{thread.resume_session_id}  {verb} {', '.join(pr.url for pr in prs)}", file=out)
+        for thread in gone:
+            print(f"{thread.resume_session_id}  skipped, its transcript is gone: {thread.imported_from}", file=out)
     print(f"{len(planned)} threads with new pull requests", file=out)
     return 0
 
