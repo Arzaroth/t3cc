@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "t3cc"
-version = "0.1.0"
+version = "0.2.0"
 description = "Move conversation history between Claude Code and T3 Code"
 readme = "README.md"
 requires-python = ">=3.11"

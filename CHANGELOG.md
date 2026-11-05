@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-05
+
 ### Changed
 
 - t3cc now works with T3 Code 0.1 (checked against 0.1.5 to 0.1.7), which
