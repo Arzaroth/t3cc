@@ -15,7 +15,7 @@ import and never imports the same session twice.
 ## Install
 
 ```bash
-uv tool install git+https://github.com/Arzaroth/t3cc@v0.2.0
+uv tool install git+https://github.com/Arzaroth/t3cc@v0.3.0
 ```
 
 Or, from a clone:
