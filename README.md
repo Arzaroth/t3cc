@@ -85,9 +85,12 @@ blocked.
 
 ## Caveats
 
-- Needs T3 Code 0.1 or later, which keeps its state in `statev2.sqlite`. Checked against 0.1.5 to 0.1.7 (schema
-  migrations 72, 76 and 79). T3 decodes every thread it lists, so a row it cannot read would break that list:
-  restore the backup in that case. For T3 Code 0.0.x, use t3cc 0.1.0.
+- Works with T3 Code 0.1, which keeps its state in `statev2.sqlite`. Checked against 0.1.5 to 0.1.7 (schema
+  migrations 72, 76 and 79); imports into any other schema need `--allow-unknown-schema`. T3 decodes every
+  thread it lists, so a row it cannot read would break that list: restore the backup in that case. For T3 Code
+  0.0.x, use t3cc 0.1.0.
+- Imported threads run in full access. T3's own importer uses the project's default mode instead when an
+  administrator policy caps the runtime mode; t3cc does not read that policy.
 - An imported thread and `claude --resume` share one transcript. Use one of them at a time per session.
 - Deleting an imported worktree thread in T3 may offer to remove its worktree.
 
