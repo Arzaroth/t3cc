@@ -13,6 +13,16 @@ SHELL_WRAPPER = re.compile(r"^\s*(?:\S*/)?(?:ba|z|da|k)?sh\s+-l?c\s+(?=[\"'])([\
 SHELL_WORD_PIECE = re.compile(r"\"((?:\\[\s\S]|[^\"\\])*)\"|'([^']*)'|\\([\s\S])|(\S)")
 HEREDOC_BODY = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1[^\n]*\n(?:(?:[\s\S]*?\n)?[ \t]*\2[ \t]*(?=\n|$)|[\s\S]*$)")
 QUOTED_OR_COMMENT = re.compile(r"'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"|(?:^|(?<=[\s;&|(]))#[^\n]*", re.M)
+QUOTED_WORD = re.compile(r"'([^\s'\\;&|()<>`$#]+)'|\"([^\s\"\\;&|()<>`$#]+)\"")
+API_POST = r"(?=[^;&|\n]*\s(?:-X\s*|--method[\s=]+)POST\b)"
+API_FIELDS = r"(?![^;&|\n]*\s(?:-X|--method)\b)(?=[^;&|\n]*\s(?:-[fF]|--(?:raw-)?field|--input)\b)"
+API_WRITE = rf"(?:{API_POST}|{API_FIELDS})"
+API_CREATES = [
+    re.compile(rf"{COMMAND_START}gh\s+api\b{API_WRITE}(?=[^;&|\n]*\s(?:/?repos/)?[^\s/]+/[^\s/]+/pulls(?=$|[\s;&|)]))"),
+    re.compile(
+        rf"{COMMAND_START}glab\s+api\b{API_WRITE}(?=[^;&|\n]*\s/?projects/[^\s/]+/merge_requests(?=$|[\s;&|)]))"
+    ),
+]
 COMMAND_SEPARATOR = re.compile(r"&&|\|\||[;|\n]")
 LISTS_CHANGE_REQUESTS = re.compile(r"\b(?:gh\s+(?:pr\s+(?:list|status)|search\s+prs|api)|glab\s+(?:mr\s+list|api))\b")
 URL_LINE = re.compile(r"^[ \t]*(https?://\S+)[ \t]*$", re.M)
@@ -40,7 +50,8 @@ class CreatedPullRequest:
 
 
 def _create_count(code: str) -> int:
-    return sum(len(run.findall(code)) for run in CREATE_RUNS.values())
+    runs = [*CREATE_RUNS.values(), *API_CREATES]
+    return sum(len(run.findall(code)) for run in runs)
 
 
 def _shell_script(command: str) -> str:
@@ -84,7 +95,8 @@ def _shell_segments(script: str) -> list[str]:
 
 
 def _shell_code(script: str) -> str:
-    return QUOTED_OR_COMMENT.sub("''", HEREDOC_BODY.sub("<<", script))
+    unquoted = QUOTED_WORD.sub(lambda word: word.group(1) or word.group(2), HEREDOC_BODY.sub("<<", script))
+    return QUOTED_OR_COMMENT.sub("''", unquoted)
 
 
 def _parse_url(value: str) -> tuple[str, str, str, int] | None:
@@ -105,7 +117,7 @@ def _parse_url(value: str) -> tuple[str, str, str, int] | None:
 
 
 def created_by(command: str, output: str) -> list[CreatedPullRequest]:
-    if not any(re.search(pattern, command) for pattern in CREATE_COMMANDS.values()):
+    if not re.search(r"\b(?:gh\s+pr\s+create|glab\s+mr\s+create|gh\s+api|glab\s+api)\b", command):
         return []
     script = _shell_script(command)
     code = _shell_code(script)
@@ -117,6 +129,7 @@ def created_by(command: str, output: str) -> list[CreatedPullRequest]:
         return []
     other_script = "\n".join(s for s in _shell_segments(script) if _create_count(_shell_code(s)) == 0)
     creators = {kind for kind, run in CREATE_RUNS.items() if run.search(code)}
+    creators |= {kind for kind, run in zip(CREATE_RUNS, API_CREATES, strict=True) if run.search(code)}
     created: dict[str, CreatedPullRequest] = {}
     for url in URL_LINE.findall(output):
         parsed = _parse_url(url)
