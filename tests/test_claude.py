@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import assistant, user
+from conftest import MR, assistant, bash, user
 from t3cc.claude import transcript
 from t3cc.claude.store import ClaudeStore
 from t3cc.claude.synth import CONTINUATION_PROMPT, Turn, build_session, merge_turns
@@ -161,3 +161,34 @@ def test_build_session_chains_records():
     assert {first["sessionId"], second["sessionId"], title["sessionId"]} == {sid}
     assert first["gitBranch"] == "" and first["cwd"] == "/c"
     assert title == {"type": "ai-title", "aiTitle": "T", "sessionId": sid}
+
+
+def test_parse_collects_the_pull_requests_bash_commands_created(world):
+    path = world.transcript(
+        "/r",
+        [
+            user("open the MRs"),
+            *bash("a", "glab mr create --fill", f"{MR}/1\n", ts="2026-09-01T10:00:05Z"),
+            *bash("b", "glab mr create --fill", [{"type": "text", "text": f"{MR}/2"}, "loose", {"type": "image"}]),
+            *bash("c", "glab mr create --fill", f"{MR}/1"),
+            *bash("d", "glab mr create --fill", {"unexpected": "shape"}),
+            assistant([{"type": "tool_use", "id": "e", "name": "Read", "input": {"command": "glab mr create"}}]),
+            assistant([{"type": "tool_use", "id": "f", "name": "Bash", "input": {}}, "loose"]),
+            {
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "e", "content": f"{MR}/3"},
+                        {"type": "tool_result", "tool_use_id": "f", "content": f"{MR}/4"},
+                    ],
+                },
+            },
+        ],
+    )
+    prs = transcript.parse(path).pull_requests
+    assert [(pr.number, pr.created_at) for pr in prs] == [
+        (1, "2026-09-01T10:00:05.000Z"),
+        (2, "2026-09-01T10:00:02.000Z"),
+    ]
+    assert prs[0].key == "git.example.com/group/repo#1"

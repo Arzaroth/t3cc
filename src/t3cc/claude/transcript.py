@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from t3cc import timeutil
+from t3cc.claude import pull_requests
+from t3cc.claude.pull_requests import CreatedPullRequest
 
 DEFAULT_MODEL = "claude-opus-5-5"
 TEXT_BLOCK_TYPES = ("text", "input_text", "output_text")
@@ -31,6 +33,7 @@ class Transcript:
     branch: str | None
     messages: tuple[Message, ...]
     updated_at: str
+    pull_requests: tuple[CreatedPullRequest, ...] = ()
 
     @property
     def has_user_message(self) -> bool:
@@ -61,6 +64,14 @@ def _records(path: Path) -> Iterator[dict]:
                 yield record
 
 
+def _tool_output(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "\n".join(block.get("text") or "" for block in content if isinstance(block, dict))
+
+
 def _clean(value: object) -> str:
     return value.strip() if isinstance(value, str) else ""
 
@@ -71,6 +82,8 @@ def parse(path: Path) -> Transcript:
     session_id = path.stem
     ai_title = custom_title = model = cwd = branch = None
     messages: list[Message] = []
+    commands: dict[str, str] = {}
+    created: dict[str, CreatedPullRequest] = {}
     for record in _records(path):
         if record.get("isSidechain") or record.get("isMeta") or record.get("isCompactSummary"):
             continue
@@ -87,7 +100,19 @@ def parse(path: Path) -> Transcript:
             model = record_model
         if record.get("type") not in ("user", "assistant"):
             continue
-        text = extract_text(message.get("content"))
+        content = message.get("content")
+        for block in content if isinstance(content, list) else []:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_use" and block.get("name") == "Bash":
+                command = (block.get("input") or {}).get("command")
+                if isinstance(command, str):
+                    commands[str(block.get("id"))] = command
+            elif block.get("type") == "tool_result" and (command := commands.get(str(block.get("tool_use_id")))):
+                at = timeutil.normalize(record.get("timestamp"), fallback)
+                for pr in pull_requests.created_by(command, _tool_output(block.get("content"))):
+                    created.setdefault(pr.key, CreatedPullRequest(pr.host, pr.repository, pr.number, pr.url, at))
+        text = extract_text(content)
         if text:
             messages.append(Message(record["type"], text, timeutil.normalize(record.get("timestamp"), fallback)))
     first_user = next((m for m in messages if m.role == "user"), None)
@@ -102,4 +127,5 @@ def parse(path: Path) -> Transcript:
         branch=branch,
         messages=tuple(messages),
         updated_at=fallback,
+        pull_requests=tuple(created.values()),
     )

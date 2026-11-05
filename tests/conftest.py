@@ -25,6 +25,20 @@ def assistant(text, ts="2026-09-01T10:00:01.000Z", model="claude-opus-5-5", **ex
     }
 
 
+MR = "https://git.example.com/group/repo/-/merge_requests"
+
+
+def bash(tool_id, command, output, ts="2026-09-01T10:00:02.000Z"):
+    """A Bash tool call and its result, as two transcript records."""
+    call = assistant([{"type": "tool_use", "id": tool_id, "name": "Bash", "input": {"command": command}}], ts=ts)
+    result = {
+        "type": "user",
+        "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": tool_id, "content": output}]},
+        "timestamp": ts,
+    }
+    return [call, result]
+
+
 class World:
     def __init__(self, root: Path):
         self.root = root
@@ -94,7 +108,14 @@ class World:
         provider_thread_id = f"provider-thread:{thread_id}" if native_session else None
         payload = {
             "id": thread_id,
+            "projectId": project_id,
             "title": title,
+            "providerInstanceId": "claudeAgent",
+            "runtimeMode": "full-access",
+            "interactionMode": "default",
+            "createdAt": "x",
+            "archivedAt": None,
+            "deletedAt": None,
             "branch": branch,
             "worktreePath": worktree,
             "modelSelection": model_selection if model_selection is not None else {"instanceId": "x", "model": model},
