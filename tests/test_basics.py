@@ -11,7 +11,8 @@ from t3cc.paths import Paths, backup_path
 def test_paths_default_to_home(tmp_path):
     paths = Paths.from_env({}, home=tmp_path)
     assert paths.claude_projects == tmp_path / ".claude" / "projects"
-    assert paths.t3_db == tmp_path / ".t3" / "userdata" / "state.sqlite"
+    assert paths.t3_db == tmp_path / ".t3" / "userdata" / "statev2.sqlite"
+    assert paths.t3_legacy_db == tmp_path / ".t3" / "userdata" / "state.sqlite"
     assert paths.t3_runtime == tmp_path / ".t3" / "userdata" / "server-runtime.json"
     assert paths.t3_worktrees == tmp_path / ".t3" / "worktrees"
 

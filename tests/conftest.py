@@ -33,9 +33,7 @@ class World:
         self.paths.t3_db.parent.mkdir(parents=True)
         with sqlite3.connect(self.paths.t3_db) as con:
             con.executescript(SCHEMA.read_text())
-            con.execute(
-                "INSERT INTO effect_sql_migrations (migration_id, name) VALUES (52, 'ProjectionThreadTitleState')"
-            )
+            con.execute("INSERT INTO effect_sql_migrations (migration_id, name) VALUES (72, 'WaitingLinkRequestIndex')")
         con.close()
 
     def db(self):
@@ -80,44 +78,65 @@ class World:
         branch=None,
         worktree=None,
         model="claude-opus-5-5",
+        model_selection=None,
         updated_at="2026-09-01T00:00:00.000Z",
         provider=None,
         resume=None,
         runtime_cwd=None,
+        native_session=None,
         messages=(),
         deleted=False,
-        raw_model_json=None,
+        subagent=False,
         raw_payload=None,
     ):
         thread_id = thread_id or str(uuid.uuid4())
-        model_json = raw_model_json if raw_model_json is not None else json.dumps({"instanceId": "x", "model": model})
+        provider_thread_id = f"provider-thread:{thread_id}" if native_session else None
+        payload = {
+            "id": thread_id,
+            "title": title,
+            "branch": branch,
+            "worktreePath": worktree,
+            "modelSelection": model_selection if model_selection is not None else {"instanceId": "x", "model": model},
+            "activeProviderThreadId": provider_thread_id,
+            "lineage": {"relationshipToParent": "subagent" if subagent else None},
+        }
         with self.db() as con:
             con.execute(
-                "INSERT INTO projection_threads (thread_id, project_id, title, branch, worktree_path, created_at,"
-                " updated_at, deleted_at, model_selection_json) VALUES (?, ?, ?, ?, ?, 'x', ?, ?, ?)",
-                (thread_id, project_id, title, branch, worktree, updated_at, "x" if deleted else None, model_json),
+                "INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, default_provider,"
+                " runtime_mode, interaction_mode, active_provider_thread_id, created_at, updated_at, deleted_at,"
+                " payload_json) VALUES (?, ?, ?, 'x', 'full-access', 'default', ?, 'x', ?, ?, ?)",
+                (
+                    thread_id,
+                    project_id,
+                    title,
+                    provider_thread_id,
+                    updated_at,
+                    "x" if deleted else None,
+                    json.dumps(payload),
+                ),
             )
+            if native_session:
+                native = {"nativeThreadRef": {"driver": "claudeAgent", "nativeId": native_session}}
+                con.execute(
+                    "INSERT INTO orchestration_v2_projection_provider_threads (provider_thread_id, thread_id, provider,"
+                    " driver, status, updated_at, payload_json) VALUES (?, ?, 'claudeAgent', 'claudeAgent', 'idle',"
+                    " 'x', ?)",
+                    (provider_thread_id, thread_id, json.dumps(native)),
+                )
             if provider:
-                payload = raw_payload if raw_payload is not None else json.dumps({"cwd": runtime_cwd})
+                runtime = raw_payload if raw_payload is not None else json.dumps({"cwd": runtime_cwd})
                 con.execute(
                     "INSERT INTO provider_session_runtime (thread_id, provider_name, adapter_key, status, last_seen_at,"
                     " resume_cursor_json, runtime_payload_json) VALUES (?, ?, ?, 'stopped', 'x', ?, ?)",
-                    (thread_id, provider, provider, json.dumps({"resume": resume}) if resume else None, payload),
+                    (thread_id, provider, provider, json.dumps({"resume": resume}) if resume else None, runtime),
                 )
             for index, (role, text, *rest) in enumerate(messages):
-                attachments = rest[0] if rest else None
+                created_at = f"2026-09-01T00:00:{index:02d}.000Z"
+                message = {"role": role, "text": text, "attachments": rest[0] if rest else []}
                 con.execute(
-                    "INSERT INTO projection_thread_messages (message_id, thread_id, role, text, is_streaming,"
-                    " created_at, updated_at, attachments_json) VALUES (?, ?, ?, ?, 0, ?, ?, ?)",
-                    (
-                        f"{thread_id}:{index}",
-                        thread_id,
-                        role,
-                        text,
-                        f"2026-09-01T00:00:{index:02d}.000Z",
-                        "x",
-                        attachments,
-                    ),
+                    "INSERT INTO orchestration_v2_projection_messages (message_id, thread_id, role, streaming,"
+                    " created_at, updated_at, payload_json) VALUES (?, ?, ?, 0, ?, ?, ?)",
+                    (f"{thread_id}:{index}", thread_id, role, created_at, created_at, json.dumps(message)),
                 )
         return thread_id
 

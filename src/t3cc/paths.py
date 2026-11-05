@@ -19,6 +19,10 @@ class Paths:
 
     @property
     def t3_db(self) -> Path:
+        return self.t3_home / "userdata" / "statev2.sqlite"
+
+    @property
+    def t3_legacy_db(self) -> Path:
         return self.t3_home / "userdata" / "state.sqlite"
 
     @property

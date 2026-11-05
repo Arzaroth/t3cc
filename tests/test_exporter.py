@@ -103,7 +103,7 @@ def test_export_synthesizes_non_claude_threads(world, tmp_path):
         model="gpt-6",
         messages=[
             ("assistant", "hello"),
-            ("user", "", json.dumps([{"name": "shot.png"}])),
+            ("user", "", [{"name": "shot.png"}]),
             ("user", "do it"),
             ("assistant", "done"),
         ],
@@ -124,7 +124,7 @@ def test_export_synthesizes_non_claude_threads(world, tmp_path):
 
 def test_export_claude_thread_without_transcript_uses_default_model(world, tmp_path):
     project = world.project(str(tmp_path))
-    world.thread(project, provider="claudeAgent", resume="missing", raw_model_json="{}", messages=[("user", "q")])
+    world.thread(project, provider="claudeAgent", resume="missing", model_selection={}, messages=[("user", "q")])
     repo = T3Repository(world.db())
     result = exported(export_thread(repo, ClaudeStore(world.paths.claude_projects), repo.threads()[0]))
     record = json.loads(result.path.read_text().splitlines()[0])

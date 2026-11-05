@@ -8,9 +8,9 @@ from t3cc import procs
 from t3cc.errors import T3ccError
 from t3cc.paths import Paths, backup_path
 
-# Event payload shapes were checked against T3 Code 0.0.42, whose last schema migration is 52.
-# T3 validates every event when it starts, so writing into an unchecked schema could stop it from booting.
-SUPPORTED_SCHEMA_VERSIONS = frozenset({52})
+# Event and projection shapes were checked against T3 Code 0.1.5, 0.1.6 and 0.1.7 (schema migrations 72, 76, 79).
+# T3 decodes every projection row it reads, so writing into an unchecked schema could break the threads it lists.
+SUPPORTED_SCHEMA_VERSIONS = frozenset({72, 76, 79})
 
 
 def running_server_pid(runtime_file: Path, proc_root: Path = procs.PROC) -> int | None:
@@ -34,6 +34,10 @@ def connect(
     proc_root: Path = procs.PROC,
 ) -> sqlite3.Connection:
     if not paths.t3_db.exists():
+        if paths.t3_legacy_db.exists():
+            raise T3ccError(
+                f"{paths.t3_db} not found, only {paths.t3_legacy_db.name}: T3 Code older than 0.1 needs t3cc 0.1"
+            )
         raise T3ccError(f"{paths.t3_db} not found")
     if write:
         pid = running_server_pid(paths.t3_runtime, proc_root)

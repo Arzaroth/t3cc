@@ -117,7 +117,7 @@ def test_import_refuses_unknown_schema(world, capsys):
     world.project("/r")
     world.transcript("/r", [user("x")], SID)
     with world.db() as con:
-        con.execute("INSERT INTO effect_sql_migrations (migration_id, name) VALUES (60, 'Future')")
+        con.execute("INSERT INTO effect_sql_migrations (migration_id, name) VALUES (73, 'Future')")
     assert run(world, "import", SID)[0] == 1
     assert "--allow-unknown-schema" in capsys.readouterr().err
     assert run(world, "import", SID, "--allow-unknown-schema")[0] == 0

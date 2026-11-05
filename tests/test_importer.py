@@ -136,6 +136,11 @@ def read_events(world):
         return con.execute("SELECT * FROM orchestration_events ORDER BY sequence").fetchall()
 
 
+def one(world, sql, *args):
+    with world.db() as con:
+        return con.execute(sql, args).fetchone()
+
+
 def test_apply_import_writes_what_t3_writes(world, tmp_path):
     project_id = world.project("/r/repo")
     worktree = tmp_path / "repo.worktrees" / "feat"
@@ -143,8 +148,8 @@ def test_apply_import_writes_what_t3_writes(world, tmp_path):
     in_root = world.transcript(
         "/r/repo",
         [
-            user("q", ts="2026-09-01T10:00:00Z", gitBranch="main"),
-            assistant("a", ts="2026-09-01T10:05:00Z", model="claude-fable-5"),
+            user("question", ts="2026-09-01T10:00:00Z", gitBranch="main"),
+            assistant("answer", ts="2026-09-01T10:05:00Z", model="claude-fable-5"),
         ],
         SID,
     )
@@ -162,43 +167,60 @@ def test_apply_import_writes_what_t3_writes(world, tmp_path):
     assert [r.project.id for r in results] == [project_id] * 3
     assert [r.copied_to for r in results] == [None, None, store.project_dir("/r/repo") / gone.name]
 
-    events = [e for e in read_events(world) if e["stream_id"] == f"import:claudeAgent:{SID}"]
-    assert [e["event_type"] for e in events] == [
-        "thread.created",
-        "thread.message-sent",
-        "thread.message-sent",
-        "thread.settled",
+    thread_id = f"import:claudeAgent:{SID}"
+    provider_thread_id = f"provider-thread:provider:claudeAgent:provider-instance:claudeAgent:native-thread:{SID}"
+    prefix = "agent-session-import:v2"
+    events = [e for e in read_events(world) if e["stream_id"] == thread_id]
+    assert [(e["event_id"], e["event_type"], e["stream_version"]) for e in events] == [
+        (f"{prefix}:thread:{thread_id}:created", "thread.created", 0),
+        (f"{prefix}:message:{thread_id}:000000", "message.updated", 1),
+        (f"{prefix}:turn-item:{thread_id}:000000", "turn-item.updated", 2),
+        (f"{prefix}:message:{thread_id}:000001", "message.updated", 3),
+        (f"{prefix}:turn-item:{thread_id}:000001", "turn-item.updated", 4),
+        (f"{prefix}:provider-thread:{provider_thread_id}", "provider-thread.updated", 5),
     ]
-    assert all(json.loads(e["metadata_json"]) == {"historyImport": True} for e in events)
-    created = json.loads(events[0]["payload_json"])
-    assert created["modelSelection"] == {"instanceId": "claudeAgent", "model": "claude-fable-5"}
-    assert (created["branch"], created["worktreePath"], created["createdAt"]) == (
-        None,
-        None,
-        "2026-09-01T10:00:00.000Z",
-    )
-    message = json.loads(events[2]["payload_json"])
-    assert message["messageId"] == f"import:claudeAgent:{SID}:000001" and message["role"] == "assistant"
-    assert json.loads(events[3]["payload_json"])["settledAt"] == "2026-09-01T10:05:00.000Z"
-    assert events[1]["command_id"] == events[3]["command_id"] != events[0]["command_id"]
+    assert {(e["application_event_version"], e["actor_kind"], e["command_id"]) for e in events} == {(2, "server", None)}
+    assert [json.loads(e["metadata_json"]) for e in (events[0], events[1], events[5])] == [
+        {"providerInstanceId": "claudeAgent"},
+        {},
+        {"driver": "claudeAgent", "providerInstanceId": "claudeAgent"},
+    ]
+    user_item, assistant_item = (json.loads(e["payload_json"]) for e in (events[2], events[4]))
+    assert (user_item["type"], user_item["ordinal"], user_item["createdBy"]) == ("user_message", 1, "user")
+    assert (assistant_item["type"], assistant_item["messageId"]) == ("assistant_message", f"{thread_id}:000001")
 
-    worktree_created = json.loads(
-        next(
-            e["payload_json"]
-            for e in read_events(world)
-            if e["stream_id"].endswith("6666") and e["stream_version"] == 0
-        )
+    thread = json.loads(one(world, "SELECT payload_json FROM orchestration_v2_projection_threads")[0])
+    assert thread["modelSelection"] == {"instanceId": "claudeAgent", "model": "claude-fable-5"}
+    assert (thread["branch"], thread["worktreePath"], thread["historyOrigin"]) == (None, None, "v1_import")
+    assert (thread["activeProviderThreadId"], thread["settledOverride"]) == (provider_thread_id, "settled")
+    assert (thread["createdAt"], thread["settledAt"]) == ("2026-09-01T10:00:00.000Z", "2026-09-01T10:05:00.000Z")
+    provider_thread = one(
+        world, "SELECT * FROM orchestration_v2_projection_provider_threads WHERE thread_id = ?", thread_id
     )
-    assert (worktree_created["worktreePath"], worktree_created["branch"]) == (str(worktree), "feat")
-    assert worktree_created["modelSelection"]["model"] == DEFAULT_MODEL
+    assert json.loads(provider_thread["payload_json"])["nativeThreadRef"]["nativeId"] == SID
+    positions = one(
+        world, "SELECT group_concat(ordinal) FROM orchestration_v2_turn_item_positions WHERE thread_id = ?", thread_id
+    )
+    assert positions[0] == "1,2"
+    search = "SELECT COUNT(*) FROM orchestration_v2_message_search WHERE orchestration_v2_message_search MATCH ?"
+    assert one(world, search, "answer")[0] == 1
+    metadata = one(world, "SELECT * FROM orchestration_v2_projection_metadata")
+    assert metadata["last_sequence"] == read_events(world)[-1]["sequence"] and metadata["schema_version"] == 2
+    assert one(world, "SELECT COUNT(*) FROM orchestration_command_receipts")[0] == 0
 
-    with world.db() as con:
-        receipts = con.execute("SELECT COUNT(*) FROM orchestration_command_receipts").fetchone()[0]
-        runtime = con.execute(
-            "SELECT * FROM provider_session_runtime WHERE thread_id = ?", (f"import:claudeAgent:{SID}",)
-        ).fetchone()
-    assert receipts == 6
-    assert json.loads(runtime["resume_cursor_json"]) == {"threadId": f"import:claudeAgent:{SID}", "resume": SID}
+    worktree_thread = next(t for t in repo.threads() if t.id.endswith("6666"))
+    assert (worktree_thread.worktree_path, worktree_thread.branch, worktree_thread.model) == (
+        str(worktree),
+        "feat",
+        DEFAULT_MODEL,
+    )
+    imported = next(t for t in repo.threads() if t.id == thread_id)
+    assert (imported.provider, imported.resume_session_id, imported.imported_from) == ("claudeAgent", SID, str(in_root))
+    assert repo.imported_session_ids() == {SID, "66666666-6666-4666-8666-666666666666", gone.stem}
+
+    runtime = one(world, "SELECT * FROM provider_session_runtime WHERE thread_id = ?", thread_id)
+    assert json.loads(runtime["resume_cursor_json"]) == {"threadId": thread_id, "resume": SID}
+    assert runtime["last_seen_at"] == "2026-09-01T10:05:00.000Z"
     payload = json.loads(runtime["runtime_payload_json"])
     assert payload["cwd"] == "/r/repo"
     assert payload["importedTranscripts"][0]["filePath"] == str(in_root)
@@ -216,4 +238,6 @@ def test_apply_import_creates_each_project_once(world):
     )
     results = apply_import(repo, ClaudeStore(world.paths.claude_projects), plan)
     assert results[0].project.id == results[1].project.id is not None
-    assert [e["event_type"] for e in read_events(world)].count("project.created") == 1
+    project = [e for e in read_events(world) if e["event_type"] == "project.created"]
+    assert len(project) == 1 and project[0]["stream_id"] == results[0].project.id
+    assert one(world, "SELECT workspace_root FROM projection_projects")[0] == "/new/app"

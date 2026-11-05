@@ -1,7 +1,7 @@
 """Claude Code sessions -> T3 Code threads that resume the same Claude session.
 
-Threads are written the way T3 Code's own AgentSessionImporter writes them (same thread ids, events and
-provider binding), so T3 recognises them as imported and never imports them twice.
+Threads are written the way T3 Code's own AgentSessionImporter writes them (same thread ids, events, projections
+and provider binding), so T3 recognises them as imported and never imports them twice.
 """
 
 import os
@@ -14,13 +14,20 @@ from pathlib import Path
 
 from t3cc import timeutil
 from t3cc.claude.store import ClaudeStore
-from t3cc.claude.transcript import DEFAULT_MODEL, Transcript
-from t3cc.t3.events import Event
-from t3cc.t3.repo import CLAUDE_PROVIDER, NewProject, Project, T3Repository, imported_thread_id
+from t3cc.claude.transcript import DEFAULT_MODEL, Message, Transcript
+from t3cc.t3.events import ThreadEvent
+from t3cc.t3.repo import (
+    CLAUDE_PROVIDER,
+    NewProject,
+    Project,
+    T3Repository,
+    imported_thread_id,
+    provider_thread_id,
+)
 
 SESSION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.I)
 WORKTREES_PARENT = re.compile(r"^(.*)\.worktrees/")
-HISTORY_IMPORT = {"historyImport": True}
+IMPORT_EVENT_PREFIX = "agent-session-import:v2"
 
 
 class Skip(StrEnum):
@@ -150,55 +157,145 @@ def plan_import(
     return plan
 
 
-def write_thread(repo: T3Repository, item: PlannedImport, project: Project, now: str) -> None:
+def _message_events(thread_id: str, index: int, message: Message) -> list[ThreadEvent]:
+    suffix = f"{index:06d}"
+    message_id = f"{thread_id}:{suffix}"
+    turn_item_id = f"{IMPORT_EVENT_PREFIX}:turn-item:{thread_id}:{suffix}"
+    at = message.created_at
+    turn_item: dict = {
+        "id": turn_item_id,
+        "threadId": thread_id,
+        "runId": None,
+        "nodeId": None,
+        "providerThreadId": None,
+        "providerTurnId": None,
+        "nativeItemRef": None,
+        "parentItemId": None,
+        "ordinal": index + 1,
+        "status": "completed",
+        "title": None,
+        "startedAt": at,
+        "completedAt": at,
+        "updatedAt": at,
+    }
+    if message.role == "user":
+        turn_item |= {
+            "createdBy": "user",
+            "creationSource": "server",
+            "type": "user_message",
+            "messageId": message_id,
+            "inputIntent": "turn_start",
+            "text": message.text,
+            "attachments": [],
+        }
+    else:
+        turn_item |= {"type": "assistant_message", "messageId": message_id, "text": message.text, "streaming": False}
+    conversation_message = {
+        "createdBy": "user" if message.role == "user" else "agent",
+        "creationSource": "server",
+        "id": message_id,
+        "threadId": thread_id,
+        "runId": None,
+        "nodeId": None,
+        "role": message.role,
+        "text": message.text,
+        "attachments": [],
+        "streaming": False,
+        "createdAt": at,
+        "updatedAt": at,
+    }
+    return [
+        ThreadEvent(f"{IMPORT_EVENT_PREFIX}:message:{thread_id}:{suffix}", "message.updated", at, conversation_message),
+        ThreadEvent(turn_item_id, "turn-item.updated", at, turn_item),
+    ]
+
+
+def write_thread(repo: T3Repository, item: PlannedImport, project: Project) -> None:
     transcript, thread_id = item.transcript, item.thread_id
     messages = transcript.messages
     created_at = messages[0].created_at
-    settled_at = max(m.created_at for m in messages)
-    created = {
-        "threadId": thread_id,
+    updated_at = max(m.created_at for m in messages)
+    session_id = transcript.session_id
+    provider_thread = provider_thread_id(CLAUDE_PROVIDER, CLAUDE_PROVIDER, session_id)
+    app_thread = {
+        "createdBy": "system",
+        "creationSource": "server",
+        "id": thread_id,
         "projectId": project.id,
-        "title": transcript.title,
+        "title": transcript.title.strip() or "Untitled thread",
+        "providerInstanceId": CLAUDE_PROVIDER,
         "modelSelection": {"instanceId": CLAUDE_PROVIDER, "model": transcript.model or DEFAULT_MODEL},
         "runtimeMode": "full-access",
         "interactionMode": "default",
-        "branch": item.placement.branch,
+        "branch": item.placement.branch or None,
         "worktreePath": item.placement.worktree,
+        "linkedPullRequest": None,
+        "branchPullRequest": None,
+        "activeProviderThreadId": provider_thread,
+        "historyOrigin": "v1_import",
+        "lineage": {"parentThreadId": None, "relationshipToParent": None, "rootThreadId": thread_id},
+        "forkedFrom": None,
         "createdAt": created_at,
-        "updatedAt": created_at,
+        "updatedAt": updated_at,
+        "archivedAt": None,
+        "settledOverride": "settled",
+        "settledAt": updated_at,
+        "unsettledAt": None,
+        "snoozedUntil": None,
+        "snoozedAt": None,
+        "pinnedAt": None,
+        "pinOrderKey": None,
+        "activeOrderKey": None,
+        "lastVisitedAt": None,
+        "deletedAt": None,
     }
-    history = [
-        Event(
-            "thread.message-sent",
-            message.created_at,
-            {
-                "threadId": thread_id,
-                "messageId": f"{thread_id}:{index:06d}",
-                "role": message.role,
-                "text": message.text,
-                "turnId": None,
-                "streaming": False,
-                "createdAt": message.created_at,
-                "updatedAt": message.created_at,
-            },
-        )
-        for index, message in enumerate(messages)
+    native_thread = {
+        "id": provider_thread,
+        "driver": CLAUDE_PROVIDER,
+        "providerInstanceId": CLAUDE_PROVIDER,
+        "providerSessionId": None,
+        "appThreadId": thread_id,
+        "ownerNodeId": None,
+        "nativeThreadRef": {"driver": CLAUDE_PROVIDER, "nativeId": session_id, "strength": "strong"},
+        "nativeConversationHeadRef": None,
+        "status": "idle",
+        "firstRunOrdinal": None,
+        "lastRunOrdinal": None,
+        "handoffIds": [],
+        "forkedFrom": None,
+        "pendingBackgroundTasks": [],
+        "createdAt": created_at,
+        "updatedAt": updated_at,
+    }
+    events = [
+        ThreadEvent(
+            f"{IMPORT_EVENT_PREFIX}:thread:{thread_id}:created",
+            "thread.created",
+            created_at,
+            app_thread,
+            provider_instance_id=CLAUDE_PROVIDER,
+        ),
+        *(event for index, message in enumerate(messages) for event in _message_events(thread_id, index, message)),
+        ThreadEvent(
+            f"{IMPORT_EVENT_PREFIX}:provider-thread:{provider_thread}",
+            "provider-thread.updated",
+            updated_at,
+            native_thread,
+            driver=CLAUDE_PROVIDER,
+            provider_instance_id=CLAUDE_PROVIDER,
+        ),
     ]
-    settled = {"threadId": thread_id, "settledAt": settled_at, "updatedAt": settled_at}
-    repo.events.command("thread", thread_id, [Event("thread.created", created_at, created)], metadata=HISTORY_IMPORT)
-    repo.events.command(
-        "thread", thread_id, [*history, Event("thread.settled", settled_at, settled)], metadata=HISTORY_IMPORT
-    )
+    repo.events.thread_events(thread_id, events)
 
     stat = transcript.stat
     repo.bind_claude_session(
         thread_id=thread_id,
-        session_id=transcript.session_id,
+        session_id=session_id,
         cwd=item.placement.cwd,
         source={
             "provider": CLAUDE_PROVIDER,
             "providerInstanceId": CLAUDE_PROVIDER,
-            "providerSessionId": transcript.session_id,
+            "providerSessionId": session_id,
             "filePath": str(transcript.path),
             "size": stat.st_size,
             "mtimeMs": stat.st_mtime * 1000,
@@ -206,7 +303,7 @@ def write_thread(repo: T3Repository, item: PlannedImport, project: Project, now:
             "inode": stat.st_ino,
             "birthtimeMs": None,
         },
-        now=now,
+        last_seen_at=updated_at,
     )
 
 
@@ -226,6 +323,6 @@ def apply_import(
             copied = (
                 store.copy_into(item.transcript.path, item.placement.cwd) if item.placement.copy_transcript else None
             )
-            write_thread(repo, item, project, now)
+            write_thread(repo, item, project)
             results.append(ImportResult(item, project, copied))
     return results
