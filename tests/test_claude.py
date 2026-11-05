@@ -174,6 +174,7 @@ def test_parse_collects_the_pull_requests_bash_commands_created(world):
             *bash("d", "glab mr create --fill", {"unexpected": "shape"}),
             assistant([{"type": "tool_use", "id": "e", "name": "Read", "input": {"command": "glab mr create"}}]),
             assistant([{"type": "tool_use", "id": "f", "name": "Bash", "input": {}}, "loose"]),
+            assistant([{"type": "tool_use", "id": "g", "name": "Bash", "input": "glab mr create"}]),
             {
                 "type": "user",
                 "message": {

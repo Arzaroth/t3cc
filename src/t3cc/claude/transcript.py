@@ -105,7 +105,8 @@ def parse(path: Path) -> Transcript:
             if not isinstance(block, dict):
                 continue
             if block.get("type") == "tool_use" and block.get("name") == "Bash":
-                command = (block.get("input") or {}).get("command")
+                tool_input = block.get("input")
+                command = tool_input.get("command") if isinstance(tool_input, dict) else None
                 if isinstance(command, str):
                     commands[str(block.get("id"))] = command
             elif block.get("type") == "tool_result" and (command := commands.get(str(block.get("tool_use_id")))):

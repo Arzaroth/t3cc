@@ -117,3 +117,18 @@ TO_URL = "| python3 -c \"import json,sys; print(json.load(sys.stdin)['web_url'])
 )
 def test_links_what_api_calls_create(command, output, linked):
     assert [pr.number for pr in created_by(command, output)] == linked
+
+
+@pytest.mark.parametrize(
+    ("command", "output", "linked"),
+    [
+        ("gh api repos/owner/repository/pulls \\\n  -f title=x \\\n  --jq .html_url", f"{GH}/7", [7]),
+        ("gh api \\\n  -X POST \\\n  repos/owner/repository/pulls -f title=x --jq .html_url", f"{GH}/7", [7]),
+        ("gh pr create \\\n  --fill", f"{GH}/7", [7]),
+        ("gh api -XGET repos/owner/repository/pulls -f state=open --jq '.[0].html_url'", f"{GH}/7", []),
+        ('git commit -m "don\'t" && gh pr create --fill --title "won\'t"', f"{GH}/5", [5]),
+        ("git commit -m 'say \"hi\"' && gh pr create --fill --title 'a\"b'", f"{GH}/5", [5]),
+    ],
+)
+def test_links_across_continuations_and_odd_quotes(command, output, linked):
+    assert [pr.number for pr in created_by(command, output)] == linked

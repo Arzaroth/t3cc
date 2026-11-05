@@ -13,9 +13,10 @@ SHELL_WRAPPER = re.compile(r"^\s*(?:\S*/)?(?:ba|z|da|k)?sh\s+-l?c\s+(?=[\"'])([\
 SHELL_WORD_PIECE = re.compile(r"\"((?:\\[\s\S]|[^\"\\])*)\"|'([^']*)'|\\([\s\S])|(\S)")
 HEREDOC_BODY = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1[^\n]*\n(?:(?:[\s\S]*?\n)?[ \t]*\2[ \t]*(?=\n|$)|[\s\S]*$)")
 QUOTED_OR_COMMENT = re.compile(r"'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"|(?:^|(?<=[\s;&|(]))#[^\n]*", re.M)
-QUOTED_WORD = re.compile(r"'([^\s'\\;&|()<>`$#]+)'|\"([^\s\"\\;&|()<>`$#]+)\"")
+QUOTED_WORD = re.compile(r"'([^\s'\"\\;&|()<>`$#]+)'|\"([^\s'\"\\;&|()<>`$#]+)\"")
+LINE_CONTINUATION = re.compile(r"\\\n")
 API_POST = r"(?=[^;&|\n]*\s(?:-X\s*|--method[\s=]+)POST\b)"
-API_FIELDS = r"(?![^;&|\n]*\s(?:-X|--method)\b)(?=[^;&|\n]*\s(?:-[fF]|--(?:raw-)?field|--input)\b)"
+API_FIELDS = r"(?![^;&|\n]*\s(?:-X|--method\b))(?=[^;&|\n]*\s(?:-[fF]|--(?:raw-)?field|--input)\b)"
 API_WRITE = rf"(?:{API_POST}|{API_FIELDS})"
 API_CREATES = [
     re.compile(rf"{COMMAND_START}gh\s+api\b{API_WRITE}(?=[^;&|\n]*\s(?:/?repos/)?[^\s/]+/[^\s/]+/pulls(?=$|[\s;&|)]))"),
@@ -119,7 +120,7 @@ def _parse_url(value: str) -> tuple[str, str, str, int] | None:
 def created_by(command: str, output: str) -> list[CreatedPullRequest]:
     if not re.search(r"\b(?:gh\s+pr\s+create|glab\s+mr\s+create|gh\s+api|glab\s+api)\b", command):
         return []
-    script = _shell_script(command)
+    script = LINE_CONTINUATION.sub(" ", _shell_script(command))
     code = _shell_code(script)
     creates = _create_count(code)
     if creates == 0:
