@@ -39,6 +39,9 @@ t3cc export --all --project ~/Repos/app
 
 t3cc sync --all --dry-run    # which originals T3 has moved past
 t3cc sync --all
+
+t3cc link-prs --all --dry-run # PRs imported sessions opened that their threads miss
+t3cc link-prs --all
 ```
 
 ### Import
@@ -49,6 +52,10 @@ t3cc sync --all
   session's branch. `--no-worktree` runs it from the project root instead. If the directory is gone, the
   transcript is copied under the root so `claude --resume` still finds it.
 - Sessions T3 started itself, sessions already imported and sessions without a user message are skipped.
+- A PR the session opened with `gh pr create` or `glab mr create` is linked to the thread, by the rule T3
+  applies to its own runs: the command printed the PR's URL on a line of its own. PRs opened another way, such
+  as `glab api`, are not. A thread that opened PRs is imported active, and T3 settles it once they merge or
+  close; any other thread is imported settled, as T3's own importer does.
 - T3 Code must be closed: t3cc writes its database directly, and T3 reads it fresh when it starts. Each import
   first writes a backup next to the database (`statev2.sqlite.t3cc-<timestamp>.bak`).
 - Writing is refused on a T3 schema version t3cc was not checked against (`--allow-unknown-schema` overrides).
@@ -59,6 +66,12 @@ t3cc sync --all
   `--to DIR` copies the transcript under DIR.
 - Other threads (Codex), or any thread with `--flatten`, are rebuilt from T3's messages as a new Claude Code
   session. Only text and attachment names carry over, not tool calls.
+
+### Link PRs
+
+`t3cc link-prs` adds those links to threads imported before t3cc found them. It reads each thread's original
+transcript, links the PRs the thread does not have yet, and leaves the thread's settled state alone. Like an
+import, it needs T3 Code closed and backs the database up first.
 
 ### Sync
 
