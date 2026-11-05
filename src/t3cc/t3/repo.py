@@ -60,6 +60,20 @@ def _json(value: str | None) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _json_list(value: str | None) -> list:
+    try:
+        parsed = json.loads(value or "[]")
+    except ValueError:
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _attachment_names(attachments: object) -> tuple[str, ...]:
+    if not isinstance(attachments, list):
+        return ()
+    return tuple(str(a.get("name") or a.get("type") or "file") for a in attachments if isinstance(a, dict))
+
+
 def _imported_from(runtime_payload: dict) -> str | None:
     transcripts = runtime_payload.get("importedTranscripts")
     if not isinstance(transcripts, list) or not transcripts or not isinstance(transcripts[0], dict):
@@ -203,6 +217,23 @@ class T3Repository:
         return threads
 
     def thread_messages(self, thread_id: str) -> list[ThreadMessage]:
+        pending_legacy = self.con.execute(
+            "SELECT 1 FROM orchestration_v2_legacy_imports WHERE thread_id = ? AND transcript_imported_at IS NULL",
+            (thread_id,),
+        ).fetchone()
+        if pending_legacy:
+            rows = self.con.execute(
+                """SELECT role, text, attachments_json, created_at FROM projection_thread_messages
+                   WHERE thread_id = ? AND role IN ('user', 'assistant')
+                   ORDER BY created_at, message_id""",
+                (thread_id,),
+            ).fetchall()
+            return [
+                ThreadMessage(
+                    r["role"], r["text"], _attachment_names(_json_list(r["attachments_json"])), r["created_at"]
+                )
+                for r in rows
+            ]
         rows = self.con.execute(
             """SELECT role, payload_json, created_at FROM orchestration_v2_projection_messages
                WHERE thread_id = ? AND streaming = 0
@@ -214,11 +245,6 @@ class T3Repository:
         messages = []
         for r in rows:
             payload = _json(r["payload_json"])
-            attachments = payload.get("attachments")
-            names = tuple(
-                str(a.get("name") or a.get("type") or "file")
-                for a in (attachments if isinstance(attachments, list) else [])
-                if isinstance(a, dict)
-            )
+            names = _attachment_names(payload.get("attachments"))
             messages.append(ThreadMessage(r["role"], str(payload.get("text") or ""), names, r["created_at"]))
         return messages

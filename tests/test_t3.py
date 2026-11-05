@@ -296,3 +296,32 @@ def test_pick_threads_matches_every_key():
     assert pick_threads(threads, ["s"], **pick) == [threads[0]]
     with pytest.raises(T3ccError, match="'t' matches 2 sessions"):
         pick_threads(threads, ["t"], **pick)
+
+
+def test_repo_reads_legacy_messages_until_t3_imports_the_transcript(world):
+    thread = world.thread(world.project("/p"), messages=[("user", "preview only")])
+    with world.db() as con:
+        con.execute(
+            "INSERT INTO orchestration_v2_legacy_imports (thread_id, source_updated_at, shell_imported_at)"
+            " VALUES (?, 'x', 'x')",
+            (thread,),
+        )
+        con.executemany(
+            "INSERT INTO projection_thread_messages (message_id, thread_id, role, text, is_streaming, created_at,"
+            " updated_at, attachments_json) VALUES (?, ?, ?, ?, 0, ?, 'x', ?)",
+            [
+                ("m0", thread, "user", "first", "t0", json.dumps([{"name": "a.png"}])),
+                ("m1", thread, "system", "hidden", "t1", None),
+                ("m2", thread, "assistant", "second", "t2", "not json"),
+                ("m3", thread, "assistant", "third", "t3", json.dumps({"name": "not a list"})),
+            ],
+        )
+    repo = T3Repository(world.db())
+    assert [(m.role, m.text, m.attachment_names) for m in repo.thread_messages(thread)] == [
+        ("user", "first", ("a.png",)),
+        ("assistant", "second", ()),
+        ("assistant", "third", ()),
+    ]
+    with world.db() as con:
+        con.execute("UPDATE orchestration_v2_legacy_imports SET transcript_imported_at = 'x'")
+    assert [m.text for m in repo.thread_messages(thread)] == ["preview only"]
