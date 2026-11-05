@@ -89,3 +89,31 @@ def test_shell_wrapper_keeps_escaped_and_bare_pieces():
 def test_escapes_do_not_split_commands():
     command = r'gh pr create --title "a \"b\"" && echo \;'
     assert [pr.number for pr in created_by(command, f"{GH}/5")] == [5]
+
+
+GL = "https://gitlab.com/owner/repository/-/merge_requests"
+TO_URL = "| python3 -c \"import json,sys; print(json.load(sys.stdin)['web_url'])\""
+
+
+@pytest.mark.parametrize(
+    ("command", "output", "linked"),
+    [
+        (
+            "cat > /tmp/mr.md <<'EOF'\nStacked on !41.\nEOF\n"
+            'glab api -X POST "projects/owner%2Frepository/merge_requests" -f source_branch=b '
+            f'-f "description=$(cat /tmp/mr.md)" 2>&1 {TO_URL}',
+            f"{GL}/42",
+            [42],
+        ),
+        ("sleep 5; glab api --method=POST projects/7/merge_requests -f title=x", f"{GL}/43", [43]),
+        ("gh api repos/owner/repository/pulls -f title=x -f head=b --jq .html_url", f"{GH}/7", [7]),
+        ("gh api /repos/owner/repository/pulls --input body.json --jq .html_url", f"{GH}/7", [7]),
+        ("gh api repos/owner/repository/pulls --jq '.[].html_url'", f"{GH}/7", []),
+        ("glab api projects/7/merge_requests -X GET -f state=opened", f"{GL}/43", []),
+        ("glab api -X POST projects/7/merge_requests/43/notes -f body=hi", f"{GL}/43", []),
+        ("glab api -X POST projects/7/merge_requests -f title=x && glab api projects/7/merge_requests", f"{GL}/3", []),
+        ("echo 'glab api -X POST projects/7/merge_requests -f title=x'", f"{GL}/3", []),
+    ],
+)
+def test_links_what_api_calls_create(command, output, linked):
+    assert [pr.number for pr in created_by(command, output)] == linked

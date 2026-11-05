@@ -53,8 +53,9 @@ t3cc link-prs --all
   transcript is copied under the root so `claude --resume` still finds it.
 - Sessions T3 started itself, sessions already imported and sessions without a user message are skipped.
 - A PR the session opened with `gh pr create` or `glab mr create` is linked to the thread, by the rule T3
-  applies to its own runs: the command printed the PR's URL on a line of its own. PRs opened another way, such
-  as `glab api`, are not. A thread that opened PRs is imported active, and T3 settles it once they merge or
+  applies to its own runs: the command printed the PR's URL on a line of its own. So is one opened with a
+  `gh api` or `glab api` POST to the pulls or merge requests endpoint that printed its URL, which T3 itself
+  does not link. A thread that opened PRs is imported active, and T3 settles it once they merge or
   close; any other thread is imported settled, as T3's own importer does.
 - T3 Code must be closed: t3cc writes its database directly, and T3 reads it fresh when it starts. Each import
   first writes a backup next to the database (`statev2.sqlite.t3cc-<timestamp>.bak`).
