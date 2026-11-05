@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- t3cc now works with T3 Code 0.1 and later, which moved its state to a new
+  database, `statev2.sqlite`. Imports write the events T3 Code 0.1's own
+  importer writes, with the thread, message and provider rows it builds from
+  them, in one transaction. T3 Code 0.0.x is no longer supported: use t3cc 0.1.0
+  with it.
+- `t3cc list-t3`, `export` and `sync` no longer show the subagent threads T3
+  Code starts under a thread.
+
 ## [0.1.0] - 2026-09-25
 
 ### Added

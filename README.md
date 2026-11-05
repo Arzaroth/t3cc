@@ -49,8 +49,8 @@ t3cc sync --all
   session's branch. `--no-worktree` runs it from the project root instead. If the directory is gone, the
   transcript is copied under the root so `claude --resume` still finds it.
 - Sessions T3 started itself, sessions already imported and sessions without a user message are skipped.
-- T3 Code must be closed: it only picks up new events when it starts. Each import first writes a backup next
-  to the database (`state.sqlite.t3cc-<timestamp>.bak`).
+- T3 Code must be closed: t3cc writes its database directly, and T3 reads it fresh when it starts. Each import
+  first writes a backup next to the database (`statev2.sqlite.t3cc-<timestamp>.bak`).
 - Writing is refused on a T3 schema version t3cc was not checked against (`--allow-unknown-schema` overrides).
 
 ### Export
@@ -85,8 +85,9 @@ blocked.
 
 ## Caveats
 
-- Checked against T3 Code 0.0.42 (schema migration 52). T3 validates every event at startup, so an event it
-  cannot read would stop it from booting: restore the backup in that case.
+- Needs T3 Code 0.1 or later, which keeps its state in `statev2.sqlite`. Checked against 0.1.5 to 0.1.7 (schema
+  migrations 72, 76 and 79). T3 decodes every thread it lists, so a row it cannot read would break that list:
+  restore the backup in that case. For T3 Code 0.0.x, use t3cc 0.1.0.
 - An imported thread and `claude --resume` share one transcript. Use one of them at a time per session.
 - Deleting an imported worktree thread in T3 may offer to remove its worktree.
 
