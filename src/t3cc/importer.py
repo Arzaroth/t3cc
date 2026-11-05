@@ -13,14 +13,16 @@ from enum import StrEnum
 from pathlib import Path
 
 from t3cc import timeutil
+from t3cc.claude.pull_requests import CreatedPullRequest
 from t3cc.claude.store import ClaudeStore
-from t3cc.claude.transcript import DEFAULT_MODEL, Message, Transcript
+from t3cc.claude.transcript import DEFAULT_MODEL, Message, Transcript, parse
 from t3cc.t3.events import ThreadEvent
 from t3cc.t3.repo import (
     CLAUDE_PROVIDER,
     NewProject,
     Project,
     T3Repository,
+    Thread,
     imported_thread_id,
     provider_thread_id,
 )
@@ -210,6 +212,19 @@ def _message_events(thread_id: str, index: int, message: Message) -> list[Thread
     ]
 
 
+def pull_request_link(pr: CreatedPullRequest) -> dict:
+    return {
+        "host": pr.host,
+        "repository": pr.repository,
+        "number": pr.number,
+        "url": pr.url,
+        "source": "created",
+        "linkedAt": pr.created_at,
+        "snapshot": None,
+        "stack": None,
+    }
+
+
 def write_thread(repo: T3Repository, item: PlannedImport, project: Project) -> None:
     transcript, thread_id = item.transcript, item.thread_id
     messages = transcript.messages
@@ -217,6 +232,7 @@ def write_thread(repo: T3Repository, item: PlannedImport, project: Project) -> N
     updated_at = max(m.created_at for m in messages)
     session_id = transcript.session_id
     provider_thread = provider_thread_id(CLAUDE_PROVIDER, CLAUDE_PROVIDER, session_id)
+    links = [pull_request_link(pr) for pr in transcript.pull_requests]
     app_thread = {
         "createdBy": "system",
         "creationSource": "server",
@@ -231,6 +247,7 @@ def write_thread(repo: T3Repository, item: PlannedImport, project: Project) -> N
         "worktreePath": item.placement.worktree,
         "linkedPullRequest": None,
         "branchPullRequest": None,
+        **({"pullRequests": links} if links else {}),
         "activeProviderThreadId": provider_thread,
         "historyOrigin": "v1_import",
         "lineage": {"parentThreadId": None, "relationshipToParent": None, "rootThreadId": thread_id},
@@ -238,8 +255,8 @@ def write_thread(repo: T3Repository, item: PlannedImport, project: Project) -> N
         "createdAt": created_at,
         "updatedAt": updated_at,
         "archivedAt": None,
-        "settledOverride": "settled",
-        "settledAt": updated_at,
+        "settledOverride": None if links else "settled",
+        "settledAt": None if links else updated_at,
         "unsettledAt": None,
         "snoozedUntil": None,
         "snoozedAt": None,
@@ -305,6 +322,14 @@ def write_thread(repo: T3Repository, item: PlannedImport, project: Project) -> N
         },
         last_seen_at=updated_at,
     )
+
+
+def missing_pull_requests(repo: T3Repository, thread: Thread) -> list[CreatedPullRequest]:
+    source = Path(thread.imported_from or "")
+    if not thread.imported_from or not source.is_file():
+        return []
+    linked = repo.pull_request_keys(thread.id)
+    return [pr for pr in parse(source).pull_requests if pr.key.lower() not in linked]
 
 
 def apply_import(

@@ -124,6 +124,7 @@ def _provider_thread(con: sqlite3.Connection, provider_thread: dict) -> None:
 
 THREAD_PROJECTORS = {
     "thread.created": _thread,
+    "thread.pull-request-synced": _thread,
     "message.updated": _message,
     "turn-item.updated": _turn_item,
     "provider-thread.updated": _provider_thread,

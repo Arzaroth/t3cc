@@ -6,7 +6,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import TextIO
 
-from t3cc import __version__, exporter, importer, sync
+from t3cc import __version__, exporter, importer, sync, timeutil
 from t3cc.claude import transcript as claude_transcript
 from t3cc.claude.store import ClaudeStore
 from t3cc.errors import T3ccError
@@ -137,6 +137,28 @@ def cmd_sync(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
     return 1 if unresolved else 0
 
 
+def cmd_link_prs(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
+    if not args.threads and not args.all:
+        raise T3ccError("give imported thread or session ids, or --all")
+    with closing(db.connect(paths, write=not args.dry_run, allow_unknown_schema=args.allow_unknown_schema)) as con:
+        repo = T3Repository(con)
+        planned = [
+            (t, importer.missing_pull_requests(repo, t)) for t in sync.select_imported(repo.threads(), args.threads)
+        ]
+        planned = [(thread, prs) for thread, prs in planned if prs]
+        if planned and not args.dry_run:
+            print(f"backup: {db.backup(con, paths.t3_db)}", file=out)
+            now = timeutil.now_iso()
+            with con:
+                for thread, prs in planned:
+                    repo.link_pull_requests(thread.id, [importer.pull_request_link(pr) for pr in prs], now)
+        verb = "would link" if args.dry_run else "linked"
+        for thread, prs in planned:
+            print(f"{thread.resume_session_id}  {verb} {', '.join(pr.url for pr in prs)}", file=out)
+    print(f"{len(planned)} threads with new pull requests", file=out)
+    return 0
+
+
 def _sync_message(result: sync.SyncResult) -> str:
     state = result.state
     if state is SyncState.SAME_FILE:
@@ -218,6 +240,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="overwrite a diverged original (it is backed up first)")
     p.add_argument("-n", "--dry-run", action="store_true")
     p.set_defaults(func=cmd_sync)
+
+    p = sub.add_parser("link-prs", help="link the PRs imported sessions opened to their T3 threads (T3 must be closed)")
+    p.add_argument("threads", nargs="*", help="imported thread ids, session ids or prefixes")
+    p.add_argument("--all", action="store_true", help="every imported thread")
+    p.add_argument("--allow-unknown-schema", action="store_true", help="write into an untested T3 schema version")
+    p.add_argument("-n", "--dry-run", action="store_true")
+    p.set_defaults(func=cmd_link_prs)
     return parser
 
 

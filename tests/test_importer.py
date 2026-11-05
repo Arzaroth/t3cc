@@ -3,7 +3,7 @@ import os
 from collections import Counter
 from pathlib import Path
 
-from conftest import assistant, user
+from conftest import MR, assistant, bash, user
 from t3cc.claude import transcript
 from t3cc.claude.store import ClaudeStore
 from t3cc.claude.transcript import DEFAULT_MODEL
@@ -15,6 +15,7 @@ from t3cc.importer import (
     Skip,
     apply_import,
     classify,
+    missing_pull_requests,
     place,
     plan_import,
     resolve_project,
@@ -241,3 +242,47 @@ def test_apply_import_creates_each_project_once(world):
     project = [e for e in read_events(world) if e["event_type"] == "project.created"]
     assert len(project) == 1 and project[0]["stream_id"] == results[0].project.id
     assert one(world, "SELECT workspace_root FROM projection_projects")[0] == "/new/app"
+
+
+def test_apply_import_links_created_pull_requests_and_leaves_the_thread_active(world):
+    world.project("/r/repo")
+    world.transcript(
+        "/r/repo", [user("open it"), *bash("t", "glab mr create --fill", f"{MR}/7", ts="2026-09-01T10:00:09Z")], SID
+    )
+    repo = T3Repository(world.db())
+    store = ClaudeStore(world.paths.claude_projects)
+    plan = plan_import(
+        repo, [transcript.parse(store.find(SID))], ImportOptions(), t3_worktrees=world.paths.t3_worktrees
+    )
+    apply_import(repo, store, plan)
+    thread = json.loads(one(world, "SELECT payload_json FROM orchestration_v2_projection_threads")[0])
+    assert thread["pullRequests"] == [
+        {
+            "host": "git.example.com",
+            "repository": "group/repo",
+            "number": 7,
+            "url": f"{MR}/7",
+            "source": "created",
+            "linkedAt": "2026-09-01T10:00:09.000Z",
+            "snapshot": None,
+            "stack": None,
+        }
+    ]
+    assert (thread["settledOverride"], thread["settledAt"]) == (None, None)
+
+
+def test_missing_pull_requests(world):
+    project = world.project("/r")
+    source = world.transcript("/r", [user("q"), *bash("a", "glab mr create && glab mr create", f"{MR}/1\n{MR}/2")], SID)
+    payload = json.dumps({"importedTranscripts": [{"filePath": str(source)}]})
+    gone = json.dumps({"importedTranscripts": [{"filePath": str(source.with_name("gone.jsonl"))}]})
+    world.thread(project, thread_id="linked", provider="claudeAgent", raw_payload=payload)
+    world.thread(project, thread_id="moved", provider="claudeAgent", raw_payload=gone)
+    world.thread(project, thread_id="native", provider="claudeAgent")
+    repo = T3Repository(world.db())
+    threads = {t.id: t for t in repo.threads()}
+    assert [pr.number for pr in missing_pull_requests(repo, threads["linked"])] == [1, 2]
+    repo.link_pull_requests("linked", [{"host": "GIT.example.com", "repository": "group/repo", "number": 1}], "n")
+    assert [pr.number for pr in missing_pull_requests(repo, threads["linked"])] == [2]
+    assert missing_pull_requests(repo, threads["moved"]) == []
+    assert missing_pull_requests(repo, threads["native"]) == []

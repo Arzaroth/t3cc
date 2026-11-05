@@ -325,3 +325,23 @@ def test_repo_reads_legacy_messages_until_t3_imports_the_transcript(world):
     with world.db() as con:
         con.execute("UPDATE orchestration_v2_legacy_imports SET transcript_imported_at = 'x'")
     assert [m.text for m in repo.thread_messages(thread)] == ["preview only"]
+
+
+def test_repo_link_pull_requests(world):
+    project = world.project("/p")
+    thread = world.thread(project, title="t")
+    repo = T3Repository(world.db())
+    first = {"host": "h", "repository": "r", "number": 1}
+    repo.link_pull_requests(thread, [first], "2026-10-01T00:00:00.000Z")
+    repo.link_pull_requests(thread, [{**first, "number": 2}], "2026-10-02T00:00:00.000Z")
+    assert repo.pull_request_keys(thread) == {"h/r#1", "h/r#2"}
+    event = repo.con.execute("SELECT * FROM orchestration_events ORDER BY sequence DESC").fetchone()
+    assert (event["event_type"], event["stream_id"], event["actor_kind"]) == (
+        "thread.pull-request-synced",
+        thread,
+        "server",
+    )
+    assert json.loads(event["metadata_json"]) == {"providerInstanceId": "claudeAgent"}
+    row = repo.con.execute("SELECT updated_at FROM orchestration_v2_projection_threads").fetchone()
+    assert row[0] == "2026-10-02T00:00:00.000Z"
+    assert repo.pull_request_keys("missing") == set()

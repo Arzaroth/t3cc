@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from t3cc.errors import T3ccError
-from t3cc.t3.events import EventWriter, new_id
+from t3cc.t3.events import EventWriter, ThreadEvent, new_id
 
 CLAUDE_PROVIDER = "claudeAgent"
 
@@ -248,3 +248,27 @@ class T3Repository:
             names = _attachment_names(payload.get("attachments"))
             messages.append(ThreadMessage(r["role"], str(payload.get("text") or ""), names, r["created_at"]))
         return messages
+
+    def pull_request_keys(self, thread_id: str) -> set[str]:
+        return {
+            f"{link['host']}/{link['repository']}#{link['number']}".lower()
+            for link in self._thread_payload(thread_id).get("pullRequests") or []
+        }
+
+    def link_pull_requests(self, thread_id: str, links: list[dict], now: str) -> None:
+        thread = self._thread_payload(thread_id)
+        thread |= {"pullRequests": [*(thread.get("pullRequests") or []), *links], "updatedAt": now}
+        event = ThreadEvent(
+            f"t3cc:pull-request-link:{new_id()}",
+            "thread.pull-request-synced",
+            now,
+            thread,
+            provider_instance_id=thread["providerInstanceId"],
+        )
+        self.events.thread_events(thread_id, [event], now)
+
+    def _thread_payload(self, thread_id: str) -> dict:
+        row = self.con.execute(
+            "SELECT payload_json FROM orchestration_v2_projection_threads WHERE thread_id = ?", (thread_id,)
+        ).fetchone()
+        return _json(row[0] if row else None)
