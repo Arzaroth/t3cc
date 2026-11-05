@@ -11,10 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Imports link the PRs a session opened with `gh pr create` or `glab mr create`
   to its T3 Code thread, by the rule T3 Code applies to its own runs, and the
-  ones it opened with a `gh api` or `glab api` POST. A thread
-  that opened PRs is imported active, so T3 Code settles it once they merge or
-  close; other threads are still imported settled.
-- `t3cc link-prs` adds those links to threads imported before.
+  ones it opened with a `gh api` or `glab api` POST. A thread that opened PRs
+  is imported active, and T3 Code's auto-settle rules take it from there;
+  other threads are still imported settled.
+- `t3cc link-prs` adds those links to threads imported before. It does not
+  relink a PR you unlinked, and lists the threads whose transcript is gone.
 
 ## [0.2.0] - 2026-11-05
 

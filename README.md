@@ -54,9 +54,12 @@ t3cc link-prs --all
 - Sessions T3 started itself, sessions already imported and sessions without a user message are skipped.
 - A PR the session opened with `gh pr create` or `glab mr create` is linked to the thread, by the rule T3
   applies to its own runs: the command printed the PR's URL on a line of its own. So is one opened with a
-  `gh api` or `glab api` POST to the pulls or merge requests endpoint that printed its URL, which T3 itself
-  does not link. A thread that opened PRs is imported active, and T3 settles it once they merge or
-  close; any other thread is imported settled, as T3's own importer does.
+  `gh api` or `glab api` POST to the pulls or merge requests endpoint that printed its URL (with `--jq` or a
+  pipe, since their default JSON output does not), which T3 itself does not link.
+- A thread that opened PRs is imported active, and T3's auto-settle rules take it from there: by default it
+  settles once its PRs merge or close. T3 only settles it after it has read the PRs' state, so a thread whose
+  PRs it cannot reach (deleted repository, host without credentials) stays active until settled by hand. Any
+  other thread is imported settled, as T3's own importer does.
 - T3 Code must be closed: t3cc writes its database directly, and T3 reads it fresh when it starts. Each import
   first writes a backup next to the database (`statev2.sqlite.t3cc-<timestamp>.bak`).
 - Writing is refused on a T3 schema version t3cc was not checked against (`--allow-unknown-schema` overrides).
@@ -71,8 +74,9 @@ t3cc link-prs --all
 ### Link PRs
 
 `t3cc link-prs` adds those links to threads imported before t3cc found them. It reads each thread's original
-transcript, links the PRs the thread does not have yet, and leaves the thread's settled state alone. Like an
-import, it needs T3 Code closed and backs the database up first.
+transcript, links the PRs the thread does not have yet, and leaves the thread's settled state alone. A PR
+t3cc linked once and you unlinked in T3 is not linked again. Threads whose original transcript is gone are
+listed as skipped. Like an import, it needs T3 Code closed and backs the database up first.
 
 ### Sync
 
