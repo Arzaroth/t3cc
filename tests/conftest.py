@@ -87,6 +87,7 @@ class World:
         messages=(),
         deleted=False,
         subagent=False,
+        side_chat=False,
         raw_payload=None,
     ):
         thread_id = thread_id or str(uuid.uuid4())
@@ -98,7 +99,7 @@ class World:
             "worktreePath": worktree,
             "modelSelection": model_selection if model_selection is not None else {"instanceId": "x", "model": model},
             "activeProviderThreadId": provider_thread_id,
-            "lineage": {"relationshipToParent": "subagent" if subagent else None},
+            "lineage": {"relationshipToParent": "subagent" if subagent else None, "sideChat": side_chat},
         }
         with self.db() as con:
             con.execute(
@@ -132,7 +133,9 @@ class World:
                 )
             for index, (role, text, *rest) in enumerate(messages):
                 created_at = f"2026-09-01T00:00:{index:02d}.000Z"
-                message = {"role": role, "text": text, "attachments": rest[0] if rest else []}
+                attachments = rest[0] if rest else []
+                created_by = rest[1] if len(rest) > 1 else "user"
+                message = {"role": role, "text": text, "attachments": attachments, "createdBy": created_by}
                 con.execute(
                     "INSERT INTO orchestration_v2_projection_messages (message_id, thread_id, role, streaming,"
                     " created_at, updated_at, payload_json) VALUES (?, ?, ?, 0, ?, ?, ?)",

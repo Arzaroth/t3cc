@@ -222,6 +222,7 @@ def test_repo_threads_and_messages(world):
     world.thread(project, title="legacy", updated_at="2026-08-01", provider="claudeAgent", resume="r")
     world.thread(project, title="gone", deleted=True)
     world.thread(project, title="child", subagent=True)
+    world.thread(project, title="side", side_chat=True)
     threads = T3Repository(world.db()).threads()
     assert [t.title for t in threads] == ["new", "old", "legacy"]
     first, second, third = threads
@@ -247,6 +248,7 @@ def test_repo_threads_and_messages(world):
             ("system", "hidden"),
             ("assistant", None, "not a list"),
             ("assistant", "b", {"name": "not a list"}),
+            ("user", "Background task completed.", [], "agent"),
         ],
     )
     messages = T3Repository(world.db()).thread_messages(thread)

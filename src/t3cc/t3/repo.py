@@ -175,6 +175,7 @@ class T3Repository:
                LEFT JOIN provider_session_runtime r ON r.thread_id = t.thread_id
                WHERE t.deleted_at IS NULL
                  AND json_extract(t.payload_json, '$.lineage.relationshipToParent') IS NOT 'subagent'
+                 AND json_extract(t.payload_json, '$.lineage.sideChat') IS NOT 1
                ORDER BY t.updated_at DESC, t.thread_id"""
         ).fetchall()
         threads = []
@@ -204,7 +205,9 @@ class T3Repository:
     def thread_messages(self, thread_id: str) -> list[ThreadMessage]:
         rows = self.con.execute(
             """SELECT role, payload_json, created_at FROM orchestration_v2_projection_messages
-               WHERE thread_id = ? AND role IN ('user', 'assistant') AND streaming = 0
+               WHERE thread_id = ? AND streaming = 0
+                 AND (role = 'assistant'
+                      OR (role = 'user' AND COALESCE(json_extract(payload_json, '$.createdBy'), 'user') = 'user'))
                ORDER BY created_at, message_id""",
             (thread_id,),
         ).fetchall()
