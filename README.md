@@ -31,7 +31,7 @@ t3cc list-claude              # Claude Code sessions, marked t3 / imported / -
 t3cc list-t3                  # T3 Code threads
 
 t3cc import --all --dry-run   # preview
-t3cc import --all             # T3 Code must be closed
+t3cc import --all
 t3cc import 3f8fa3a6 --project ~/Repos/app
 
 t3cc export <thread-id>       # prints the `claude --resume` command
@@ -42,6 +42,8 @@ t3cc sync --all
 
 t3cc link-prs --all --dry-run # PRs imported sessions opened that their threads miss
 t3cc link-prs --all
+
+t3cc capabilities            # what this t3cc supports, as JSON
 ```
 
 ### Import
@@ -60,8 +62,10 @@ t3cc link-prs --all
   settles once its PRs merge or close. T3 only settles it after it has read the PRs' state, so a thread whose
   PRs it cannot reach (deleted repository, host without credentials) stays active until settled by hand. Any
   other thread is imported settled, as T3's own importer does.
-- T3 Code must be closed: t3cc writes its database directly, and T3 reads it fresh when it starts. Each import
-  first writes a backup next to the database (`statev2.sqlite.t3cc-<timestamp>.bak`).
+- T3 Code can stay open. t3cc writes its database directly, one short transaction per thread, and T3 lists the
+  new threads at once; a window already open shows them after a reload, which t3cc reminds you of when it sees
+  the server running. Each import first writes a backup next to the database
+  (`statev2.sqlite.t3cc-<timestamp>.bak`).
 - Writing is refused on a T3 schema version t3cc was not checked against (`--allow-unknown-schema` overrides).
 
 ### Export
@@ -76,7 +80,7 @@ t3cc link-prs --all
 `t3cc link-prs` adds those links to threads imported before t3cc found them. It reads each thread's original
 transcript, links the PRs the thread does not have yet, and leaves the thread's settled state alone. A PR
 t3cc linked once and you unlinked in T3 is not linked again. Threads whose original transcript is gone are
-listed as skipped. Like an import, it needs T3 Code closed and backs the database up first.
+listed as skipped. Like an import, it backs the database up first and works while T3 Code runs.
 
 ### Sync
 

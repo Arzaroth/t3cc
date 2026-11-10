@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `t3cc capabilities` prints the version, a protocol number and the features
+  this t3cc supports, as JSON, so two installs can check each other.
+
+### Changed
+
+- `t3cc import` and `link-prs` work while T3 Code is running. Each thread is
+  written in its own short transaction, and a window already open shows the
+  new threads after a reload.
+
 ## [0.3.0] - 2026-11-05
 
 ### Added
