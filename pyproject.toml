@@ -12,8 +12,12 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
     "cryptography>=50.0.2",
+    "resumove @ git+https://github.com/Arzaroth/resumove@v0.1.1",
     "websockets>=17.4",
 ]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [project.scripts]
 t3cc = "t3cc.cli:main"

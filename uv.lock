@@ -373,6 +373,11 @@ wheels = [
 ]
 
 [[package]]
+name = "resumove"
+version = "0.1.1"
+source = { git = "https://github.com/Arzaroth/resumove?rev=v0.1.1#56aebdaed82b0b19e0cbf86259b01a0833acb074" }
+
+[[package]]
 name = "ruff"
 version = "0.16.9"
 source = { registry = "https://pypi.org/simple" }
@@ -403,6 +408,7 @@ version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
+    { name = "resumove" },
     { name = "websockets" },
 ]
 
@@ -417,6 +423,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = ">=50.0.2" },
+    { name = "resumove", git = "https://github.com/Arzaroth/resumove?rev=v0.1.1" },
     { name = "websockets", specifier = ">=17.4" },
 ]
 
