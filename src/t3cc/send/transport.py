@@ -34,25 +34,24 @@ def available(shell: RemoteShell, which: Which = shutil.which) -> list[str]:
 
 def _peer_to_peer(name: str, local: Path, dest: str, shell: RemoteShell, timeout: float) -> None:
     send, receive = PEER_TO_PEER[name]
-    proc = subprocess.Popen(
+    with subprocess.Popen(
         [*shlex.split(send), str(local)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-    )
-    try:
-        code = None
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            if match := CODE.search(line):
-                code = match.group(1)
-                break
-        if code is None:
-            raise T3ccError(f"{name} send printed no code (exit {proc.wait()})")
-        shell.check(receive.format(dest=shlex.quote(dest), code=code), timeout=timeout)
-        if proc.wait(timeout=60) != 0:
-            raise T3ccError(f"{name} send failed (exit {proc.returncode})")
-    finally:
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait()
+    ) as proc:
+        try:
+            code = None
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                if match := CODE.search(line):
+                    code = match.group(1)
+                    break
+            if code is None:
+                raise T3ccError(f"{name} send printed no code (exit {proc.wait()})")
+            shell.check(receive.format(dest=shlex.quote(dest), code=code), timeout=timeout)
+            if proc.wait(timeout=60) != 0:
+                raise T3ccError(f"{name} send failed (exit {proc.returncode})")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
 
 
 def send(
