@@ -1,12 +1,13 @@
 import argparse
 import datetime as dt
+import json
 import sys
 from collections.abc import Sequence
 from contextlib import closing
 from pathlib import Path
 from typing import TextIO
 
-from t3cc import __version__, exporter, importer, sync, timeutil
+from t3cc import __version__, capabilities, exporter, importer, sync, timeutil
 from t3cc.claude import transcript as claude_transcript
 from t3cc.claude.store import ClaudeStore
 from t3cc.errors import T3ccError
@@ -171,6 +172,11 @@ def cmd_link_prs(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
     return 0
 
 
+def cmd_capabilities(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
+    print(json.dumps(capabilities.describe()), file=out)
+    return 0
+
+
 def _sync_message(result: sync.SyncResult) -> str:
     state = result.state
     if state is SyncState.SAME_FILE:
@@ -259,6 +265,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--allow-unknown-schema", action="store_true", help="write into an untested T3 schema version")
     p.add_argument("-n", "--dry-run", action="store_true")
     p.set_defaults(func=cmd_link_prs)
+
+    p = sub.add_parser("capabilities", help="print what this t3cc supports, as JSON")
+    p.set_defaults(func=cmd_capabilities)
     return parser
 
 

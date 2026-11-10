@@ -287,3 +287,13 @@ def test_link_prs(world, monkeypatch):
     source.unlink()
     code, out = run(world, "link-prs", "--all")
     assert code == 0 and f"{SID}  skipped, its transcript is gone: {source}" in out
+
+
+def test_capabilities(world):
+    code, out = run(world, "capabilities")
+    assert code == 0
+    assert json.loads(out) == {
+        "t3cc": cli.__version__,
+        "protocol": 1,
+        "features": ["import.live", "import.pull-requests", "import.worktree"],
+    }
