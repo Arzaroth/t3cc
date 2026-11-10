@@ -79,14 +79,25 @@ def prepare(ref: str, options: SendOptions, paths: Paths, proc_root: Path = proc
     if not parsed.cwd:
         raise T3ccError(f"{parsed.session_id} records no working directory")
     state = gitstate.inspect(parsed.cwd, branch=parsed.branch)
+    origin = gitstate.normalize_origin(state.origin) if state and state.origin else None
+    configured = hooks.load(options.config, options.env, origin) if options.config else {}
+    commands = {**configured, **options.hooks}
+    if not options.dry_run:
+        local_dir = parsed.cwd if Path(parsed.cwd).is_dir() else str(Path.home())
+        variables = {
+            "T3CC_SESSION": parsed.session_id,
+            "T3CC_ENV": options.env,
+            "T3CC_BRANCH": (state.branch or "") if state else "",
+            "T3CC_REMOTE_DIR": "",
+        }
+        if failure := hooks.run(commands.get("pre-send"), local_dir, variables):
+            raise T3ccError(f"pre-send hook {failure}")
+        state = gitstate.inspect(parsed.cwd, branch=parsed.branch)
     if state and (state.dirty or state.unpushed) and not options.dirty:
         raise T3ccError(
             f"{state.top} has {state.unpushed} unpushed commits"
             f"{' and uncommitted changes' if state.dirty else ''}: push them, or send with --dirty to carry them"
         )
-    origin = gitstate.normalize_origin(state.origin) if state and state.origin else None
-    configured = hooks.load(options.config, options.env, origin) if options.config else {}
-    commands = {**configured, **options.hooks}
     payload = gitstate.payload(state) if state and options.dirty else {}
     target_root = map_root(options.map, state.root if state else parsed.cwd) if options.map else None
     transcript_bytes = path.read_bytes()
@@ -199,9 +210,6 @@ def send(
     if options.dry_run:
         return result
     env = catalog.find(catalog.load(paths), options.env)
-    local_dir = prepared.manifest.source_cwd if Path(prepared.manifest.source_cwd).is_dir() else str(Path.home())
-    if failure := hooks.run(prepared.hooks.get("pre-send"), local_dir, hook_variables(prepared)):
-        raise T3ccError(f"pre-send hook {failure}")
     with Connection.open(env) as conn, RemoteShell(conn) as shell:
         result.received, result.transport, warnings = deliver(prepared, options, shell, env.label, which, progress)
     result.notes.extend(warnings)
@@ -210,6 +218,8 @@ def send(
     if note := local_thread_note(paths, prepared.session_id):
         result.notes.append(note)
     variables = hook_variables(prepared, result.received["cwd"])
+    source = prepared.manifest.source_cwd
+    local_dir = source if Path(source).is_dir() else str(Path.home())
     if failure := hooks.run(prepared.hooks.get("post-send"), local_dir, variables):
         result.notes.append(f"post-send hook {failure}")
     if prepared.state and prepared.state.linked and result.removed:

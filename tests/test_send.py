@@ -306,3 +306,14 @@ def test_cli_send_without_hooks(env, server, monkeypatch, tmp_path):
     env.session(env.clone)
     assert run_cli(env, "send", SID, "--env", "box", "--copy")[0] == 1
     assert run_cli(env, "send", SID, "--env", "box", "--copy", "--no-hooks")[0] == 0
+
+
+def test_pre_send_runs_before_the_checkout_is_read(env, server):
+    commit(env.clone, "local.txt")
+    env.session(env.clone)
+    assert send(env, hooks={"pre-send": "git push -q origin main"}).received["cwd"] == str(env.remote)
+
+
+def test_dry_run_runs_no_hooks(env):
+    env.session(env.clone)
+    assert send(env, dry_run=True, hooks={"pre-send": "exit 1"}).received is None
