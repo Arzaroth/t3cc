@@ -295,5 +295,5 @@ def test_capabilities(world):
     assert json.loads(out) == {
         "t3cc": cli.__version__,
         "protocol": 1,
-        "features": ["import.live", "import.pull-requests", "import.worktree"],
+        "features": ["import.live", "import.pull-requests", "import.worktree", "receive"],
     }

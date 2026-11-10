@@ -16,6 +16,7 @@ from t3cc.paths import Paths
 from t3cc.remote import catalog
 from t3cc.remote.rpc import Connection
 from t3cc.remote.shell import RemoteShell
+from t3cc.send import receive
 from t3cc.sync import SyncState
 from t3cc.t3 import db
 from t3cc.t3.repo import T3Repository, Thread
@@ -198,6 +199,11 @@ def cmd_envs(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
     return 0
 
 
+def cmd_receive(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
+    print(receive.receive(Path(args.archive), paths).to_json(), file=out)
+    return 0
+
+
 def _sync_message(result: sync.SyncResult) -> str:
     state = result.state
     if state is SyncState.SAME_FILE:
@@ -290,6 +296,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("envs", help="list the T3 Code environments the desktop app is connected to")
     p.add_argument("--no-probe", action="store_true", help="do not connect to check their t3cc")
     p.set_defaults(func=cmd_envs)
+
+    p = sub.add_parser("receive", help="import a session archive another t3cc sent (run by `t3cc send`)")
+    p.add_argument("archive", help="the .tar.xz session archive")
+    p.set_defaults(func=cmd_receive)
 
     p = sub.add_parser("capabilities", help="print what this t3cc supports, as JSON")
     p.set_defaults(func=cmd_capabilities)

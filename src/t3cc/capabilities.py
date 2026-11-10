@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from t3cc.remote.shell import RemoteShell
 
 PROTOCOL = 1
-FEATURES = frozenset({"import.live", "import.pull-requests", "import.worktree"})
+FEATURES = frozenset({"import.live", "import.pull-requests", "import.worktree", "receive"})
 REPOSITORY = "git+https://github.com/Arzaroth/t3cc"
 
 
