@@ -34,6 +34,7 @@ def normalize_origin(url: str) -> str:
 @dataclass(frozen=True)
 class GitState:
     top: str
+    root: str
     origin: str | None
     branch: str | None
     head: str
@@ -69,6 +70,7 @@ def inspect(cwd: str) -> GitState | None:
     unpushed = int(git(top, "rev-list", "--count", "HEAD", *not_on_origin).strip())
     return GitState(
         top=top,
+        root=str(common_dir.parent) if common_dir.name == ".git" else top,
         origin=origin,
         branch=branch,
         head=head,

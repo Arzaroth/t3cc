@@ -1,6 +1,7 @@
 import argparse
 import datetime as dt
 import json
+import os
 import sys
 from collections.abc import Sequence
 from contextlib import closing
@@ -16,7 +17,8 @@ from t3cc.paths import Paths
 from t3cc.remote import catalog
 from t3cc.remote.rpc import Connection
 from t3cc.remote.shell import RemoteShell
-from t3cc.send import receive
+from t3cc.send import receive, sender
+from t3cc.send.transport import NAMES as TRANSPORTS
 from t3cc.sync import SyncState
 from t3cc.t3 import db
 from t3cc.t3.repo import T3Repository, Thread
@@ -199,6 +201,50 @@ def cmd_envs(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
     return 0
 
 
+def default_archive_dir(env: dict[str, str] | os._Environ[str] = os.environ) -> Path:
+    state = Path(env["XDG_STATE_HOME"]) if env.get("XDG_STATE_HOME") else Path.home() / ".local" / "state"
+    return state / "t3cc" / "moved"
+
+
+def _progress(sent: int, total: int) -> None:
+    if sys.stderr.isatty():
+        end = "\n" if sent >= total else ""
+        print(f"\rsending through the terminal: {sent * 100 // max(total, 1)}%", end=end, file=sys.stderr, flush=True)
+
+
+def cmd_send(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
+    options = sender.SendOptions(
+        env=args.env,
+        transport=args.transport,
+        dirty=args.dirty,
+        copy=args.copy,
+        archive_to=Path(args.archive).expanduser() if args.archive else None,
+        map=args.map,
+        clone=args.clone,
+        dry_run=args.dry_run,
+    )
+    result = sender.send(args.session, options, paths, progress=_progress)
+    prepared = result.prepared
+    if result.received is None:
+        payload = ", ".join(prepared.manifest.payload) or "none"
+        print(
+            f"would send {prepared.session_id} to {args.env}: {len(prepared.data)} bytes, payload: {payload}", file=out
+        )
+        return 0
+    received = result.received
+    print(
+        f"sent {prepared.session_id} to {args.env} over {result.transport}: "
+        f"thread {received['thread_id']} in {received['cwd']}",
+        file=out,
+    )
+    if result.removed:
+        archived = f", archived to {result.archived}" if result.archived else ""
+        print(f"removed the local copy{archived}", file=out)
+    for note in result.notes:
+        print(f"note: {note}", file=out)
+    return 0
+
+
 def cmd_receive(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
     print(receive.receive(Path(args.archive), paths).to_json(), file=out)
     return 0
@@ -296,6 +342,23 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("envs", help="list the T3 Code environments the desktop app is connected to")
     p.add_argument("--no-probe", action="store_true", help="do not connect to check their t3cc")
     p.set_defaults(func=cmd_envs)
+
+    p = sub.add_parser("send", help="move a Claude Code session into a connected T3 Code environment")
+    p.add_argument("session", help="session id, id prefix or .jsonl path")
+    p.add_argument("--env", required=True, help="environment label or id (see `t3cc envs`)")
+    p.add_argument("--transport", choices=TRANSPORTS, help="force a transport (default: the fastest both sides have)")
+    p.add_argument("--dirty", action="store_true", help="carry unpushed commits and uncommitted or untracked files")
+    p.add_argument("--copy", action="store_true", help="keep the local copy")
+    p.add_argument(
+        "--archive",
+        nargs="?",
+        const=str(default_archive_dir()),
+        help="keep a tarball of what was moved (default directory: ~/.local/state/t3cc/moved)",
+    )
+    p.add_argument("--map", help="LOCAL=REMOTE: where the session's checkout lives on the environment")
+    p.add_argument("--clone", help="clone the origin there and create the T3 project when the environment has none")
+    p.add_argument("-n", "--dry-run", action="store_true")
+    p.set_defaults(func=cmd_send)
 
     p = sub.add_parser("receive", help="import a session archive another t3cc sent (run by `t3cc send`)")
     p.add_argument("archive", help="the .tar.xz session archive")

@@ -31,6 +31,7 @@ def test_inspect_a_clean_pushed_checkout(tmp_path):
     state = gitstate.inspect(str(clone / "sub"))
     assert state == GitState(
         top=str(clone),
+        root=str(clone),
         origin=str(origin),
         branch="main",
         head=git(clone, "rev-parse", "HEAD").strip(),
@@ -62,6 +63,7 @@ def test_inspect_a_linked_worktree_with_unpushed_work(tmp_path):
     state = gitstate.inspect(str(worktree))
     assert state is not None
     assert state.linked and state.branch == "feature/x" and state.dirty and state.unpushed == 2
+    assert state.root == str(clone) and state.top == str(worktree)
     files = gitstate.payload(state)
     assert sorted(files) == ["bundle", "diff", "untracked"]
     assert b"changed" in files["diff"]
@@ -81,6 +83,7 @@ def test_inspect_without_origin(tmp_path):
     state = gitstate.inspect(str(repo))
     assert state is not None
     assert state.origin is None and state.branch is None and state.unpushed == 1
+    assert state.root == str(repo)
     assert list(gitstate.payload(state)) == ["bundle"]
 
 
