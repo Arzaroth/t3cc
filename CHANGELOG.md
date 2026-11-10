@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `t3cc capabilities` prints the version, a protocol number and the features
   this t3cc supports, as JSON, so two installs can check each other.
+- `t3cc envs` lists the T3 Code environments the desktop app is connected to,
+  and the t3cc each one has. It reaches them through T3 Code's own connection
+  and terminals, with the desktop's saved credentials. Linux only for now.
 
 ### Changed
 

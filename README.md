@@ -44,6 +44,7 @@ t3cc link-prs --all --dry-run # PRs imported sessions opened that their threads 
 t3cc link-prs --all
 
 t3cc capabilities            # what this t3cc supports, as JSON
+t3cc envs                    # T3 Code environments the desktop app is connected to
 ```
 
 ### Import
@@ -81,6 +82,13 @@ t3cc capabilities            # what this t3cc supports, as JSON
 transcript, links the PRs the thread does not have yet, and leaves the thread's settled state alone. A PR
 t3cc linked once and you unlinked in T3 is not linked again. Threads whose original transcript is gone are
 listed as skipped. Like an import, it backs the database up first and works while T3 Code runs.
+
+### Remote environments
+
+`t3cc envs` lists the T3 Code environments the desktop app is connected to, and the t3cc installed on each. It
+reads the desktop's own list of connections (`connection-catalog.json`, decrypted with the key T3 Code keeps in
+the keyring, through `secret-tool`) and reaches each environment over T3 Code's own connection, running commands
+in one of its terminals: no ssh, nothing else to configure. Linux only for now.
 
 ### Sync
 
