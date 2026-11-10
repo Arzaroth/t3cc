@@ -30,6 +30,10 @@ class Paths:
         return self.t3_home / "userdata" / "server-runtime.json"
 
     @property
+    def t3_connection_catalog(self) -> Path:
+        return self.t3_home / "userdata" / "connection-catalog.json"
+
+    @property
     def t3_worktrees(self) -> Path:
         return self.t3_home / "worktrees"
 
