@@ -9,6 +9,7 @@ import threading
 from collections.abc import Callable
 from http import HTTPStatus
 
+from websockets.exceptions import ConnectionClosed
 from websockets.sync.server import ServerConnection, serve
 
 ACK_WINDOW = 8
@@ -39,6 +40,13 @@ class Call:
 
 
 Handler = Callable[[Call], None]
+
+
+def _run(handler: Handler, call: Call) -> None:
+    try:
+        handler(call)
+    except (ConnectionClosed, OSError):
+        pass
 
 
 def _echo(call: Call) -> None:
@@ -180,6 +188,12 @@ class FakeT3:
 
     def _handle(self, ws: ServerConnection) -> None:
         calls: dict[str, Call] = {}
+        try:
+            self._serve(ws, calls)
+        except ConnectionClosed:
+            pass
+
+    def _serve(self, ws: ServerConnection, calls: dict[str, "Call"]) -> None:
         for raw in ws:
             message = json.loads(raw)
             tag = message.get("_tag")
@@ -194,4 +208,4 @@ class FakeT3:
                 if handler is None:
                     call.fail({"_tag": "UnknownMethod", "message": f"no method {message['tag']}"})
                     continue
-                threading.Thread(target=handler, args=(call,), daemon=True).start()
+                threading.Thread(target=_run, args=(handler, call), daemon=True).start()
