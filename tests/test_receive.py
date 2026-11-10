@@ -330,3 +330,27 @@ def test_receive_the_branch_the_session_last_ran_on(setup):
     target = setup.remote.parent / "app.worktrees" / "topic"
     assert result.cwd == str(target) and result.worktree_created
     assert git(target, "rev-parse", "HEAD").strip() == tip
+
+
+def test_receive_fast_forwards_a_project_root_behind(setup):
+    tip = commit(setup.local, "later.txt")
+    git(setup.local, "push", "-q", "origin", "main")
+    result = setup.receive(setup.archive(setup.local))
+    assert result.cwd == str(setup.remote) and not result.worktree_created
+    assert git(setup.remote, "rev-parse", "HEAD").strip() == tip
+
+
+def test_receive_will_not_fast_forward_a_changed_root(setup):
+    commit(setup.local, "later.txt")
+    git(setup.local, "push", "-q", "origin", "main")
+    (setup.remote / "README").write_text("local edit")
+    with pytest.raises(T3ccError, match="behind the session on main and has local changes"):
+        setup.receive(setup.archive(setup.local))
+
+
+def test_receive_will_not_move_a_diverged_root(setup):
+    commit(setup.local, "later.txt")
+    git(setup.local, "push", "-q", "origin", "main")
+    commit(setup.remote, "own.txt")
+    with pytest.raises(T3ccError, match="does not contain"):
+        setup.receive(setup.archive(setup.local))

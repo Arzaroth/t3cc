@@ -116,6 +116,15 @@ def _create_worktree(root: str, branch: str, head: str, which: Which) -> str:
     return created
 
 
+def _fast_forward_root(root: str, branch: str, root_head: str, head: str) -> str:
+    if subprocess.run(["git", "-C", root, "merge-base", "--is-ancestor", root_head, head], check=False).returncode:
+        raise T3ccError(f"{root} is on {branch} at {root_head[:12]}, which the session's {head[:12]} does not contain")
+    if git(root, "status", "--porcelain", "--untracked-files=no").strip():
+        raise T3ccError(f"{root} is behind the session on {branch} and has local changes: commit or stash them")
+    git(root, "merge", "-q", "--ff-only", head)
+    return head
+
+
 def checkout(root: str, manifest: Manifest, state: GitState, staging: Path, which: Which) -> tuple[str, bool]:
     subprocess.run(["git", "-C", root, "fetch", "-q", "origin"], capture_output=True, check=False)
     if "bundle" in manifest.payload:
@@ -124,6 +133,8 @@ def checkout(root: str, manifest: Manifest, state: GitState, staging: Path, whic
         raise T3ccError(f"this checkout lacks commit {state.head[:12]}: push it, or send with --dirty")
     root_head = git(root, "rev-parse", "HEAD").strip()
     root_branch = git(root, "branch", "--show-current").strip() or None
+    if state.branch is not None and not state.linked and state.branch == root_branch and root_head != state.head:
+        root_head = _fast_forward_root(root, root_branch, root_head, state.head)
     if state.branch is None or (not state.linked and state.branch == root_branch and root_head == state.head):
         if root_head != state.head:
             raise T3ccError(f"{root} is at {root_head[:12]}, the session ran at {state.head[:12]} (detached)")
