@@ -1,6 +1,7 @@
 """A T3 Code server stand-in: the RPC framing, auth and stream ack window of the real one."""
 
 import codecs
+import contextlib
 import json
 import os
 import pty
@@ -43,10 +44,8 @@ Handler = Callable[[Call], None]
 
 
 def _run(handler: Handler, call: Call) -> None:
-    try:
+    with contextlib.suppress(ConnectionClosed, OSError):
         handler(call)
-    except (ConnectionClosed, OSError):
-        pass
 
 
 def _echo(call: Call) -> None:
@@ -188,10 +187,8 @@ class FakeT3:
 
     def _handle(self, ws: ServerConnection) -> None:
         calls: dict[str, Call] = {}
-        try:
+        with contextlib.suppress(ConnectionClosed):
             self._serve(ws, calls)
-        except ConnectionClosed:
-            pass
 
     def _serve(self, ws: ServerConnection, calls: dict[str, "Call"]) -> None:
         for raw in ws:
