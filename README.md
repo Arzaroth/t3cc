@@ -6,6 +6,8 @@ Move conversation history between [Claude Code](https://claude.com/claude-code) 
 - **import**: Claude Code sessions become T3 Code threads. The next message you send in T3 resumes the
   same Claude session, so the model keeps its full context.
 - **export**: T3 Code threads become Claude Code sessions you can pick up with `claude --resume`.
+- **send**: a local Claude Code session moves into a T3 Code environment the desktop app is connected to, on
+  the same branch in a worktree there, and becomes a thread of the matching project.
 
 T3 Code imports recent sessions on its own, but only during onboarding, only from the last 30 days, at most
 100 sessions and 200 messages each, and only for sessions started in a project's root. It has no export.
@@ -45,6 +47,8 @@ t3cc link-prs --all
 
 t3cc capabilities            # what this t3cc supports, as JSON
 t3cc envs                    # T3 Code environments the desktop app is connected to
+t3cc send 2d59f854 --env sunkeeper --dry-run
+t3cc send 2d59f854 --env sunkeeper
 ```
 
 ### Import
@@ -90,6 +94,50 @@ reads the desktop's own list of connections (`connection-catalog.json`, decrypte
 the keyring, through `secret-tool`) and reaches each environment over T3 Code's own connection, running commands
 in one of its terminals: no ssh, nothing else to configure. Linux only for now.
 
+### Send
+
+`t3cc send <session> --env <label>` moves a session into a connected environment, through T3 Code's own
+connection (see Remote environments). The environment needs a t3cc with `receive`; `t3cc envs` says when it
+does not, and how to install one.
+
+1. The session's checkout is read: its remotes, the branch the session last ran on and that branch's commit.
+   A checkout with unpushed commits or uncommitted changes is refused; `--dirty` carries them as a git bundle,
+   a binary diff and a tar of the untracked files. Ignored files never travel.
+2. The transcript, its companion directory and that payload go out as one archive, over `wyrm` when both sides
+   have it, then `wormhole`, then the environment's terminal (slow, but needs nothing installed);
+   `--transport` forces one. Every delivery is checked against the archive's sha256.
+3. On the environment, `t3cc receive` finds the T3 project whose checkout shares a remote with the session's.
+   The session lands in the project root when that is on the session's branch (fast-forwarded to its commit
+   when behind and clean), otherwise in the branch's worktree: an existing one at that commit, or a new one
+   from `wt switch` (`git worktree add` under `<repo>.worktrees/<branch>` without wt). The transcript's working
+   directory and companion paths are rewritten for its new place, and it is imported while T3 Code runs.
+4. Then, and only then, the local transcript and companion directory are removed. `--copy` keeps them,
+   `--archive [DIR]` keeps a tarball of what was moved (default `~/.local/state/t3cc/moved`).
+
+When no project there shares a remote, `--clone PATH` clones the origin at PATH on the environment and creates
+the project, and `--map LOCAL=REMOTE` names the remote directory of a checkout outside git or of one whose
+remotes do not identify it. A local worktree left behind, or a local T3 thread of the session, is pointed out
+and left alone. A local `claude` with the session open stops the send.
+
+Hooks run around a send when `~/.config/t3cc/config.toml` defines them, the most specific table winning:
+
+```toml
+[hooks]
+pre-send = "git push --quiet"
+
+[env.sunkeeper.hooks]
+post-checkout = "mise install"
+
+[repo."github.com/arzaroth/gliff".hooks]
+post-send = "notify-send \"$T3CC_SESSION is on $T3CC_ENV\""
+```
+
+`pre-send` runs here first, in the session's directory, before the checkout is read, and stops the send when
+it fails. `post-checkout` and `post-import` run on the environment in the session's directory: the first stops
+the receive, the second only warns. `post-send` runs here once the session has moved, and only warns. Each
+gets `T3CC_SESSION`, `T3CC_ENV`, `T3CC_BRANCH` and `T3CC_REMOTE_DIR` (empty before the receive). `--no-hooks`
+ignores the file.
+
 ### Sync
 
 Continuing an imported thread in T3 normally needs no sync: T3 resumes the same Claude session from the
@@ -123,6 +171,8 @@ blocked.
   administrator policy caps the runtime mode; t3cc does not read that policy.
 - An imported thread and `claude --resume` share one transcript. Use one of them at a time per session.
 - Deleting an imported worktree thread in T3 may offer to remove its worktree.
+- `send` keeps the session id. Usage trackers that dedupe per machine count a moved session's past turns
+  again on the machine it moved to.
 
 ## Environment
 
@@ -130,6 +180,8 @@ blocked.
 | ------------------- | ----------- |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` |
 | `T3CODE_HOME`       | `~/.t3`     |
+| `XDG_CONFIG_HOME`   | `~/.config` (send hooks: `t3cc/config.toml`) |
+| `XDG_STATE_HOME`    | `~/.local/state` (send archives: `t3cc/moved`) |
 
 ## Development
 

@@ -14,9 +14,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `t3cc envs` lists the T3 Code environments the desktop app is connected to,
   and the t3cc each one has. It reaches them through T3 Code's own connection
   and terminals, with the desktop's saved credentials. Linux only for now.
+- `t3cc send` moves a Claude Code session into one of those environments: the
+  branch it last ran on is checked out there in a worktree (with `wt` when
+  installed), the transcript is rewritten for its new directory and imported
+  as a thread of the project sharing a remote with it, and only then is the
+  local copy removed (`--copy` keeps it, `--archive` keeps a tarball).
+  `--dirty` carries unpushed commits and uncommitted files, `--clone` creates
+  a missing project, `--map` places a checkout git cannot identify. Archives
+  travel over wyrm, magic-wormhole or T3 Code's terminal, checked by sha256.
+- Hooks around a send (`pre-send`, `post-checkout`, `post-import`,
+  `post-send`), read from `~/.config/t3cc/config.toml` per environment and
+  per repository.
+- `t3cc receive`, the environment's side of a send.
 
 ### Changed
 
+- t3cc now depends on websockets, cryptography and resumove (from its git tag).
 - `t3cc import` and `link-prs` work while T3 Code is running. Each thread is
   written in its own short transaction, and a window already open shows the
   new threads after a reload.
