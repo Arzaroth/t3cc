@@ -13,6 +13,9 @@ from t3cc.claude.store import ClaudeStore
 from t3cc.errors import T3ccError
 from t3cc.exporter import ExportKind
 from t3cc.paths import Paths
+from t3cc.remote import catalog
+from t3cc.remote.rpc import Connection
+from t3cc.remote.shell import RemoteShell
 from t3cc.sync import SyncState
 from t3cc.t3 import db
 from t3cc.t3.repo import T3Repository, Thread
@@ -177,6 +180,24 @@ def cmd_capabilities(args: argparse.Namespace, paths: Paths, out: TextIO) -> int
     return 0
 
 
+def _environment_status(env: catalog.Environment) -> str:
+    try:
+        with Connection.open(env, timeout=15) as conn, RemoteShell(conn) as shell:
+            return capabilities.probe(shell).status()
+    except T3ccError as error:
+        return f"unreachable: {error}"
+
+
+def cmd_envs(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
+    environments = catalog.load(paths)
+    if not environments:
+        print("no environments connected in T3 Code", file=out)
+    for env in environments:
+        status = "-" if args.no_probe else _environment_status(env)
+        print(f"{env.label:<20}  {env.http_url:<32}  {status}", file=out)
+    return 0
+
+
 def _sync_message(result: sync.SyncResult) -> str:
     state = result.state
     if state is SyncState.SAME_FILE:
@@ -265,6 +286,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--allow-unknown-schema", action="store_true", help="write into an untested T3 schema version")
     p.add_argument("-n", "--dry-run", action="store_true")
     p.set_defaults(func=cmd_link_prs)
+
+    p = sub.add_parser("envs", help="list the T3 Code environments the desktop app is connected to")
+    p.add_argument("--no-probe", action="store_true", help="do not connect to check their t3cc")
+    p.set_defaults(func=cmd_envs)
 
     p = sub.add_parser("capabilities", help="print what this t3cc supports, as JSON")
     p.set_defaults(func=cmd_capabilities)
