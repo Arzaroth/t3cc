@@ -1,0 +1,102 @@
+import io
+import re
+import subprocess
+import tarfile
+import tempfile
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+from t3cc.errors import T3ccError
+
+SCP_LIKE = re.compile(r"^(?:[^@/]+@)?(?P<host>[^:/]+):(?P<path>[^/].*)$")
+
+
+def git(cwd: str | Path, *args: str) -> str:
+    result = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise T3ccError(f"git {' '.join(args)} failed in {cwd}: {result.stderr.strip()}")
+    return result.stdout
+
+
+def normalize_origin(url: str) -> str:
+    url = url.strip()
+    if "://" in url:
+        rest = url.split("://", 1)[1]
+        host_part, _, path = rest.partition("/")
+        host = host_part.rsplit("@", 1)[-1].split(":", 1)[0]
+    elif match := SCP_LIKE.match(url):
+        host, path = match.group("host"), match.group("path")
+    else:
+        return url.removesuffix("/").removesuffix(".git")
+    return f"{host.lower()}/{path.strip('/').removesuffix('.git')}"
+
+
+@dataclass(frozen=True)
+class GitState:
+    top: str
+    origin: str | None
+    branch: str | None
+    head: str
+    linked: bool
+    relative_cwd: str
+    dirty: bool
+    unpushed: int
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "GitState":
+        return cls(**data)
+
+
+def inspect(cwd: str) -> GitState | None:
+    if not Path(cwd).is_dir():
+        return None
+    probe = subprocess.run(
+        ["git", "-C", cwd, "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False
+    )
+    if probe.returncode != 0:
+        return None
+    top = probe.stdout.strip()
+    remotes = git(top, "remote").split()
+    origin = git(top, "remote", "get-url", "origin").strip() if "origin" in remotes else None
+    branch = git(top, "branch", "--show-current").strip() or None
+    head = git(top, "rev-parse", "HEAD").strip()
+    git_dir = Path(top, git(top, "rev-parse", "--git-dir").strip()).resolve()
+    common_dir = Path(top, git(top, "rev-parse", "--git-common-dir").strip()).resolve()
+    not_on_origin = ["--not", "--remotes=origin"] if origin else []
+    unpushed = int(git(top, "rev-list", "--count", "HEAD", *not_on_origin).strip())
+    return GitState(
+        top=top,
+        origin=origin,
+        branch=branch,
+        head=head,
+        linked=git_dir != common_dir,
+        relative_cwd=str(Path(cwd).resolve().relative_to(Path(top).resolve())),
+        dirty=bool(git(top, "status", "--porcelain").strip()),
+        unpushed=unpushed,
+    )
+
+
+def payload(state: GitState) -> dict[str, bytes]:
+    files: dict[str, bytes] = {}
+    if state.unpushed:
+        with tempfile.TemporaryDirectory() as scratch:
+            bundle = Path(scratch, "head.bundle")
+            not_on_origin = ["--not", "--remotes=origin"] if state.origin else []
+            git(state.top, "bundle", "create", str(bundle), "HEAD", *not_on_origin)
+            files["bundle"] = bundle.read_bytes()
+    diff = subprocess.run(["git", "-C", state.top, "diff", "--binary", "HEAD"], capture_output=True, check=True).stdout
+    if diff:
+        files["diff"] = diff
+    untracked = [
+        name for name in git(state.top, "ls-files", "--others", "--exclude-standard", "-z").split("\0") if name
+    ]
+    if untracked:
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w") as tar:
+            for name in untracked:
+                tar.add(Path(state.top, name), arcname=name, recursive=False)
+        files["untracked"] = buffer.getvalue()
+    return files
