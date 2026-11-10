@@ -10,7 +10,10 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = []
+dependencies = [
+    "cryptography>=50.0.2",
+    "websockets>=17.4",
+]
 
 [project.scripts]
 t3cc = "t3cc.cli:main"
