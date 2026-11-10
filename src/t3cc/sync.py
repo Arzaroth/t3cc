@@ -6,11 +6,14 @@ session id, and the original stops moving.
 """
 
 import datetime as dt
+import json
 import os
 import shutil
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+
+from resumove.registry import process_matches
 
 from t3cc import procs
 from t3cc.claude.store import ClaudeStore
@@ -54,8 +57,23 @@ def compare(original: list[bytes], t3_copy: list[bytes]) -> SyncState:
     return SyncState.DIVERGED
 
 
-def session_pid(session_id: str, proc_root: Path = procs.PROC) -> int | None:
+def _registered_pid(sessions_dir: Path, session_id: str, proc_root: Path) -> int | None:
+    for entry in sorted(sessions_dir.glob("*.json")):
+        try:
+            record = json.loads(entry.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(record, dict) or record.get("sessionId") != session_id:
+            continue
+        if process_matches(proc_root, record.get("pid"), record.get("procStart")):
+            return record["pid"]
+    return None
+
+
+def session_pid(session_id: str, sessions_dir: Path, proc_root: Path = procs.PROC) -> int | None:
     """A running `claude` process that has this session open."""
+    if pid := _registered_pid(sessions_dir, session_id, proc_root):
+        return pid
     needle = session_id.encode()
     for pid, args in procs.others(proc_root):
         if any(os.path.basename(arg) == b"claude" for arg in args[:2]) and any(arg.endswith(needle) for arg in args):
@@ -103,7 +121,7 @@ def sync_thread(
     replaces = state is SyncState.FAST_FORWARD or (state is SyncState.DIVERGED and force)
     if not replaces or dry_run:
         return result(state, replaces=replaces)
-    pid = session_pid(session_id, proc_root)
+    pid = session_pid(session_id, store.sessions_dir, proc_root)
     if pid:
         return result(state, replaces=True, blocked_by=pid)
     backup = backup_path(original, now)

@@ -11,6 +11,10 @@ class ClaudeStore:
     def __init__(self, projects: Path):
         self.projects = projects
 
+    @property
+    def sessions_dir(self) -> Path:
+        return self.projects.parent / "sessions"
+
     def project_dir(self, cwd: str | Path) -> Path:
         return self.projects / re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
 

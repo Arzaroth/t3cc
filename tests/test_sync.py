@@ -1,5 +1,6 @@
 import dataclasses
 import datetime as dt
+import json
 import os
 from pathlib import Path
 
@@ -74,8 +75,25 @@ def test_session_pid(tmp_path):
             "13": b"node\0/opt/claude\0--session-id=" + SID.encode(),
         },
     )
-    assert session_pid(SID, proc) == 13
-    assert session_pid("cccccccc-0000-4000-8000-000000000003", proc) is None
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    assert session_pid(SID, sessions, proc) == 13
+    assert session_pid("cccccccc-0000-4000-8000-000000000003", sessions, proc) is None
+
+
+def test_session_pid_reads_claude_codes_session_registry(tmp_path):
+    proc = fake_proc(tmp_path, {"4242": b"/usr/bin/claude\0", "4343": b"/usr/bin/claude\0"})
+    for pid in ("4242", "4343"):
+        (proc / pid / "stat").write_text(f"{pid} (claude) " + " ".join(["S"] + ["0"] * 18 + ["777"] + ["0"] * 5))
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    (sessions / "1.json").write_text("not json")
+    (sessions / "2.json").write_text("[]")
+    (sessions / "3.json").write_text(json.dumps({"pid": 4343, "sessionId": OTHER, "procStart": "777"}))
+    (sessions / "4.json").write_text(json.dumps({"pid": 4343, "sessionId": SID, "procStart": "123"}))
+    assert session_pid(SID, sessions, proc) is None
+    (sessions / "5.json").write_text(json.dumps({"pid": 4242, "sessionId": SID, "procStart": "777"}))
+    assert session_pid(SID, sessions, proc) == 4242
 
 
 def test_select_imported():

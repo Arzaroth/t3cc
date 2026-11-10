@@ -70,11 +70,12 @@ def map_root(mapping: str, base: str) -> str:
 
 
 def prepare(ref: str, options: SendOptions, paths: Paths, proc_root: Path = procs.PROC) -> Prepared:
-    path = ClaudeStore(paths.claude_projects).find(ref)
+    store = ClaudeStore(paths.claude_projects)
+    path = store.find(ref)
     parsed = claude_transcript.parse(path)
     if not parsed.has_user_message:
         raise T3ccError(f"{parsed.session_id} has no user message: nothing to send")
-    if pid := sync.session_pid(parsed.session_id, proc_root):
+    if pid := sync.session_pid(parsed.session_id, store.sessions_dir, proc_root):
         raise T3ccError(f"claude (pid {pid}) has {parsed.session_id} open: close it first")
     if not parsed.cwd:
         raise T3ccError(f"{parsed.session_id} records no working directory")
