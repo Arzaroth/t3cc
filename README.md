@@ -17,7 +17,7 @@ import and never imports the same session twice.
 ## Install
 
 ```bash
-uv tool install git+https://github.com/Arzaroth/t3cc@v0.3.0
+uv tool install git+https://github.com/Arzaroth/t3cc@v0.4.0
 ```
 
 Or, from a clone:
@@ -171,8 +171,6 @@ blocked.
   administrator policy caps the runtime mode; t3cc does not read that policy.
 - An imported thread and `claude --resume` share one transcript. Use one of them at a time per session.
 - Deleting an imported worktree thread in T3 may offer to remove its worktree.
-- `send` keeps the session id. Usage trackers that dedupe per machine count a moved session's past turns
-  again on the machine it moved to.
 
 ## Environment
 

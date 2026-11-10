@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-10
+
 ### Added
 
 - `t3cc capabilities` prints the version, a protocol number and the features
@@ -33,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `t3cc import` and `link-prs` work while T3 Code is running. Each thread is
   written in its own short transaction, and a window already open shows the
   new threads after a reload.
+
+### Fixed
+
+- `t3cc sync` no longer replaces an original transcript that a `claude`
+  started without `--resume` still has open: it reads Claude Code's own list
+  of open sessions, not only process command lines.
 
 ## [0.3.0] - 2026-11-05
 
