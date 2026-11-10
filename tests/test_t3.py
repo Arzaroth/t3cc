@@ -49,12 +49,6 @@ def test_connect_read_only(world):
     con.close()
 
 
-def test_connect_refuses_while_t3_runs(world, tmp_path):
-    world.paths.t3_runtime.write_text('{"pid": 5}')
-    with pytest.raises(T3ccError, match="pid 5"):
-        db.connect(world.paths, write=True, proc_root=fake_proc(tmp_path, 5, b"t3code"))
-
-
 def test_connect_schema_guard(world):
     db.connect(world.paths, write=True).close()
     with world.db() as con:

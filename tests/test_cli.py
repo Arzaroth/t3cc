@@ -82,6 +82,16 @@ def test_import_single_sessions(world):
     assert f"skip {SID}: exists" in run(world, "import", SID)[1]
 
 
+def test_import_while_t3_runs(world, monkeypatch):
+    world.project("/r")
+    world.transcript("/r", [user("hello")], SID)
+    monkeypatch.setattr(cli.db, "running_server_pid", lambda runtime: 42)
+    code, out = run(world, "import", SID)
+    assert code == 0 and f"imported {SID}" in out
+    assert "server pid 42): windows already open show the changes after a reload" in out
+    assert "Start T3 Code" not in out
+
+
 def test_import_all_reports_missing_projects(world, tmp_path):
     world.project("/r")
     worktree = tmp_path / "wt"
@@ -254,7 +264,7 @@ def test_sync_reports_blocked_sessions_as_unresolved(world, monkeypatch):
     assert run(world, "sync", "--all") == (1, f"{SID}  fast-forward blocked: claude (pid 9) has the session open\n")
 
 
-def test_link_prs(world):
+def test_link_prs(world, monkeypatch):
     project = world.project("/r")
     source = world.transcript("/r", [user("q"), *bash("a", "glab mr create", f"{MR}/5")], SID)
     world.thread(
@@ -268,8 +278,9 @@ def test_link_prs(world):
     code, out = run(world, "link-prs", "--all", "--dry-run")
     assert code == 0 and f"{SID}  would link {MR}/5" in out and "1 threads" in out
     assert not list(world.paths.t3_db.parent.glob("*.bak"))
+    monkeypatch.setattr(cli.db, "running_server_pid", lambda runtime: 42)
     code, out = run(world, "link-prs", SID)
-    assert code == 0 and f"{SID}  linked {MR}/5" in out and "backup: " in out
+    assert code == 0 and f"{SID}  linked {MR}/5" in out and "backup: " in out and "server pid 42" in out
     assert len(list(world.paths.t3_db.parent.glob("*.bak"))) == 1
     code, out = run(world, "link-prs", "--all")
     assert code == 0 and out == "0 threads with new pull requests\n"

@@ -31,7 +31,6 @@ def connect(
     *,
     write: bool,
     allow_unknown_schema: bool = False,
-    proc_root: Path = procs.PROC,
 ) -> sqlite3.Connection:
     if not paths.t3_db.exists():
         if paths.t3_legacy_db.exists():
@@ -40,12 +39,7 @@ def connect(
             )
         raise T3ccError(f"{paths.t3_db} not found")
     if write:
-        pid = running_server_pid(paths.t3_runtime, proc_root)
-        if pid:
-            raise T3ccError(
-                f"T3 Code is running (server pid {pid}). Quit it first: it reads the database fresh at startup."
-            )
-        con = sqlite3.connect(paths.t3_db)
+        con = sqlite3.connect(paths.t3_db, timeout=10)
     else:
         con = sqlite3.connect(f"file:{paths.t3_db}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row

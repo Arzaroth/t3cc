@@ -17,6 +17,13 @@ from t3cc.t3 import db
 from t3cc.t3.repo import T3Repository, Thread
 
 
+def _warn_if_running(paths: Paths, out: TextIO) -> bool:
+    pid = db.running_server_pid(paths.t3_runtime)
+    if pid:
+        print(f"T3 Code is running (server pid {pid}): windows already open show the changes after a reload", file=out)
+    return pid is not None
+
+
 def _summary(counts: dict[str, int]) -> str:
     return ", ".join(f"{key}: {value}" for key, value in counts.items())
 
@@ -83,12 +90,14 @@ def cmd_import(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
                 print(f"would import {_describe(item)}", file=out)
             print(_summary(plan.counts()), file=out)
             return 0
+        running = _warn_if_running(paths, out)
         print(f"backup: {db.backup(con, paths.t3_db)}", file=out)
         for result in importer.apply_import(repo, store, plan):
             copied = f" (transcript copied to {result.copied_to.parent.name})" if result.copied_to else ""
             print(f"imported {_describe(result.item)}{copied}", file=out)
     print(_summary(plan.counts()), file=out)
-    print("Start T3 Code: it picks the new threads up on startup.", file=out)
+    if not running:
+        print("Start T3 Code: it picks the new threads up on startup.", file=out)
     return 0
 
 
@@ -147,6 +156,7 @@ def cmd_link_prs(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
         planned = [(t, importer.missing_pull_requests(repo, t)) for t in selected if t not in gone]
         planned = [(thread, prs) for thread, prs in planned if prs]
         if planned and not args.dry_run:
+            _warn_if_running(paths, out)
             print(f"backup: {db.backup(con, paths.t3_db)}", file=out)
             now = timeutil.now_iso()
             for thread, prs in planned:
@@ -214,7 +224,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", help="workspace root to filter on")
     p.set_defaults(func=cmd_list_t3)
 
-    p = sub.add_parser("import", help="Claude Code sessions -> T3 Code threads (T3 must be closed)")
+    p = sub.add_parser("import", help="Claude Code sessions -> T3 Code threads")
     p.add_argument("sessions", nargs="*", help="session ids, id prefixes or .jsonl paths")
     p.add_argument("--all", action="store_true", help="every Claude Code session not already in T3")
     p.add_argument("--since", help="with --all: only sessions modified since this ISO date")
@@ -243,7 +253,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-n", "--dry-run", action="store_true")
     p.set_defaults(func=cmd_sync)
 
-    p = sub.add_parser("link-prs", help="link the PRs imported sessions opened to their T3 threads (T3 must be closed)")
+    p = sub.add_parser("link-prs", help="link the PRs imported sessions opened to their T3 threads")
     p.add_argument("threads", nargs="*", help="imported thread ids, session ids or prefixes")
     p.add_argument("--all", action="store_true", help="every imported thread")
     p.add_argument("--allow-unknown-schema", action="store_true", help="write into an untested T3 schema version")
