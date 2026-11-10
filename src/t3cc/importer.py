@@ -338,8 +338,8 @@ def apply_import(
     now = now or timeutil.now_iso()
     created: dict[NewProject, Project] = {}
     results = []
-    with repo.con:
-        for item in plan.items:
+    for item in plan.items:
+        with repo.con:
             project = item.project
             if isinstance(project, NewProject):
                 if project not in created:
@@ -349,5 +349,5 @@ def apply_import(
                 store.copy_into(item.transcript.path, item.placement.cwd) if item.placement.copy_transcript else None
             )
             write_thread(repo, item, project)
-            results.append(ImportResult(item, project, copied))
+        results.append(ImportResult(item, project, copied))
     return results

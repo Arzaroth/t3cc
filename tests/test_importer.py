@@ -3,7 +3,10 @@ import os
 from collections import Counter
 from pathlib import Path
 
+import pytest
+
 from conftest import MR, assistant, bash, user
+from t3cc import importer
 from t3cc.claude import transcript
 from t3cc.claude.store import ClaudeStore
 from t3cc.claude.transcript import DEFAULT_MODEL
@@ -242,6 +245,32 @@ def test_apply_import_creates_each_project_once(world):
     project = [e for e in read_events(world) if e["event_type"] == "project.created"]
     assert len(project) == 1 and project[0]["stream_id"] == results[0].project.id
     assert one(world, "SELECT workspace_root FROM projection_projects")[0] == "/new/app"
+
+
+def test_apply_import_commits_each_thread_on_its_own(world, monkeypatch):
+    world.project("/r/repo")
+    first = world.transcript("/r/repo", [user("a")], SID)
+    second = world.transcript("/r/repo", [user("b")], "88888888-8888-4888-8888-888888888888")
+    repo = T3Repository(world.db())
+    plan = plan_import(
+        repo,
+        [transcript.parse(first), transcript.parse(second)],
+        ImportOptions(),
+        t3_worktrees=world.paths.t3_worktrees,
+    )
+    write = importer.write_thread
+    calls = []
+
+    def fail_second(repo, item, project):
+        calls.append(item)
+        if len(calls) == 2:
+            raise RuntimeError("boom")
+        write(repo, item, project)
+
+    monkeypatch.setattr(importer, "write_thread", fail_second)
+    with pytest.raises(RuntimeError):
+        apply_import(repo, ClaudeStore(world.paths.claude_projects), plan)
+    assert T3Repository(world.db()).imported_session_ids() == {SID}
 
 
 def test_apply_import_links_created_pull_requests_and_leaves_the_thread_active(world):

@@ -149,8 +149,8 @@ def cmd_link_prs(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
         if planned and not args.dry_run:
             print(f"backup: {db.backup(con, paths.t3_db)}", file=out)
             now = timeutil.now_iso()
-            with con:
-                for thread, prs in planned:
+            for thread, prs in planned:
+                with con:
                     repo.link_pull_requests(thread.id, [importer.pull_request_link(pr) for pr in prs], now)
         verb = "would link" if args.dry_run else "linked"
         for thread, prs in planned:
