@@ -22,7 +22,7 @@ post-import = "a"
 pre-send = "b"
 post-send = "b"
 
-[repo."github.com/o/r".hooks]
+[repo."github.com/O/R".hooks]
 post-send = "c"
 """
     )

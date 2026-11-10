@@ -305,3 +305,18 @@ def test_cli_receive(setup, capsys):
     assert json.loads(out.getvalue())["thread_id"] == f"import:claudeAgent:{SID}"
     assert cli.main(["receive", str(setup.tmp / "missing.tar.xz")], paths=setup.world.paths, out=out) == 1
     assert "could not read the session archive" in capsys.readouterr().err
+
+
+def test_receive_matches_a_project_through_another_remote(setup):
+    git(setup.remote, "remote", "set-url", "origin", "git@mirror.example.com:Someone/App.git")
+    git(setup.remote, "remote", "add", "upstream", str(setup.origin))
+    assert setup.receive(setup.archive(setup.local)).project == str(setup.remote)
+
+
+def test_receive_prefers_the_project_with_the_same_origin(setup):
+    twin = setup.tmp / "remote" / "fork"
+    git(setup.tmp, "clone", "-q", str(setup.origin), str(twin))
+    git(twin, "remote", "set-url", "origin", "https://example.com/fork/app.git")
+    git(twin, "remote", "add", "upstream", str(setup.origin))
+    setup.world.project(str(twin))
+    assert setup.receive(setup.archive(setup.local)).project == str(setup.remote)

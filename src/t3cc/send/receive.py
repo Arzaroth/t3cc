@@ -17,7 +17,7 @@ from t3cc.errors import T3ccError
 from t3cc.paths import Paths
 from t3cc.send import archive, hooks
 from t3cc.send.archive import Manifest
-from t3cc.send.gitstate import GitState, git, normalize_origin
+from t3cc.send.gitstate import GitState, git, normalize_origin, origin_url, remote_urls
 from t3cc.t3 import db
 from t3cc.t3.repo import Project, T3Repository
 
@@ -47,24 +47,21 @@ def hook_variables(manifest: Manifest, cwd: str) -> dict[str, str]:
     }
 
 
-def _origin_of(root: str) -> str | None:
-    result = subprocess.run(
-        ["git", "-C", root, "remote", "get-url", "origin"], capture_output=True, text=True, check=False
-    )
-    return normalize_origin(result.stdout) if result.returncode == 0 else None
-
-
 def find_project(projects: list[Project], manifest: Manifest, state: GitState | None) -> Project | None:
     if manifest.target_root:
         root = str(Path(manifest.target_root).expanduser().resolve())
         return next((p for p in projects if p.workspace_root == root), None)
     if state is None or state.origin is None:
         raise T3ccError("the session did not run in a checkout with an origin: send it with --map LOCAL=REMOTE")
-    wanted = normalize_origin(state.origin)
-    matches = [p for p in projects if Path(p.workspace_root).is_dir() and _origin_of(p.workspace_root) == wanted]
+    origin = normalize_origin(state.origin)
+    wanted = set(state.remotes) | {origin}
+    remotes = {p.workspace_root: remote_urls(p.workspace_root) for p in projects if Path(p.workspace_root).is_dir()}
+    matches = [p for p in projects if remotes.get(p.workspace_root, set()) & wanted]
+    if len(matches) > 1:
+        matches = [p for p in matches if origin_url(p.workspace_root) == origin] or matches
     if len(matches) > 1:
         roots = ", ".join(p.workspace_root for p in matches)
-        raise T3ccError(f"several T3 projects have origin {wanted}: {roots}; pick one with --map")
+        raise T3ccError(f"several T3 projects share a remote with {origin}: {roots}; pick one with --map")
     return matches[0] if matches else None
 
 

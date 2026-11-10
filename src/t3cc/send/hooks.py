@@ -33,7 +33,10 @@ def load(path: Path, env_label: str, origin: str | None) -> dict[str, str]:
     merged: dict[str, str] = {}
     layers = [_section(data, "hooks"), _section(data, "env", env_label, "hooks")]
     if origin:
-        layers.append(_section(data, "repo", origin, "hooks"))
+        repos = _section(data, "repo")
+        key = next((name for name in repos if name.lower() == origin.lower()), None)
+        if key is not None:
+            layers.append(_section(repos, key, "hooks"))
     for layer in layers:
         for name, command in layer.items():
             if name not in NAMES:

@@ -3,7 +3,7 @@ import re
 import subprocess
 import tarfile
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from t3cc.errors import T3ccError
@@ -27,8 +27,20 @@ def normalize_origin(url: str) -> str:
     elif match := SCP_LIKE.match(url):
         host, path = match.group("host"), match.group("path")
     else:
-        return url.removesuffix("/").removesuffix(".git")
-    return f"{host.lower()}/{path.strip('/').removesuffix('.git')}"
+        return url.removesuffix("/").removesuffix(".git").lower()
+    return f"{host}/{path.strip('/').removesuffix('.git')}".lower()
+
+
+def origin_url(cwd: str | Path) -> str | None:
+    result = subprocess.run(
+        ["git", "-C", str(cwd), "remote", "get-url", "origin"], capture_output=True, text=True, check=False
+    )
+    return normalize_origin(result.stdout) if result.returncode == 0 else None
+
+
+def remote_urls(cwd: str | Path) -> set[str]:
+    result = subprocess.run(["git", "-C", str(cwd), "remote", "-v"], capture_output=True, text=True, check=False)
+    return {normalize_origin(line.split()[1]) for line in result.stdout.splitlines() if len(line.split()) >= 2}
 
 
 @dataclass(frozen=True)
@@ -42,6 +54,7 @@ class GitState:
     relative_cwd: str
     dirty: bool
     unpushed: int
+    remotes: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -78,6 +91,7 @@ def inspect(cwd: str) -> GitState | None:
         relative_cwd=str(Path(cwd).resolve().relative_to(Path(top).resolve())),
         dirty=bool(git(top, "status", "--porcelain").strip()),
         unpushed=unpushed,
+        remotes=sorted(remote_urls(top)),
     )
 
 

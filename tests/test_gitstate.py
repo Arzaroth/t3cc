@@ -14,11 +14,11 @@ pytestmark = pytest.mark.usefixtures("isolated_git")
 @pytest.mark.parametrize(
     ("url", "expected"),
     [
-        ("git@github.com:Arzaroth/gliff.git", "github.com/Arzaroth/gliff"),
-        ("ssh://git@Box.Example.com:2222/Arzaroth/t3cc.git", "box.example.com/Arzaroth/t3cc"),
-        ("https://github.com/Arzaroth/gliff", "github.com/Arzaroth/gliff"),
-        ("https://user:pw@github.com/Arzaroth/gliff.git/", "github.com/Arzaroth/gliff"),
-        ("/srv/git/app.git", "/srv/git/app"),
+        ("git@github.com:Arzaroth/gliff.git", "github.com/arzaroth/gliff"),
+        ("ssh://git@Box.Example.com:2222/Arzaroth/t3cc.git", "box.example.com/arzaroth/t3cc"),
+        ("https://github.com/Arzaroth/gliff", "github.com/arzaroth/gliff"),
+        ("https://user:pw@github.com/Arzaroth/gliff.git/", "github.com/arzaroth/gliff"),
+        ("/srv/git/App.git", "/srv/git/app"),
     ],
 )
 def test_normalize_origin(url, expected):
@@ -39,6 +39,7 @@ def test_inspect_a_clean_pushed_checkout(tmp_path):
         relative_cwd="sub",
         dirty=False,
         unpushed=0,
+        remotes=[gitstate.normalize_origin(str(origin))],
     )
     assert GitState.from_dict(state.as_dict()) == state
     assert gitstate.payload(state) == {}
