@@ -78,7 +78,7 @@ def prepare(ref: str, options: SendOptions, paths: Paths, proc_root: Path = proc
         raise T3ccError(f"claude (pid {pid}) has {parsed.session_id} open: close it first")
     if not parsed.cwd:
         raise T3ccError(f"{parsed.session_id} records no working directory")
-    state = gitstate.inspect(parsed.cwd)
+    state = gitstate.inspect(parsed.cwd, branch=parsed.branch)
     if state and (state.dirty or state.unpushed) and not options.dirty:
         raise T3ccError(
             f"{state.top} has {state.unpushed} unpushed commits"

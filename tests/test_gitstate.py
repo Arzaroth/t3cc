@@ -91,3 +91,24 @@ def test_inspect_without_origin(tmp_path):
 def test_git_failure(tmp_path):
     with pytest.raises(T3ccError, match="git rev-parse HEAD failed"):
         gitstate.git(tmp_path, "rev-parse", "HEAD")
+
+
+def test_inspect_the_branch_the_session_last_ran_on(tmp_path):
+    _, clone = origin_and_clone(tmp_path)
+    git(clone, "checkout", "-q", "-b", "topic")
+    tip = commit(clone, "topic.txt")
+    git(clone, "checkout", "-q", "main")
+    (clone / "README").write_text("unrelated edit")
+    state = gitstate.inspect(str(clone), branch="topic")
+    assert state is not None
+    assert (state.branch, state.head, state.ref, state.unpushed, state.dirty) == (
+        "topic",
+        tip,
+        "refs/heads/topic",
+        1,
+        False,
+    )
+    assert list(gitstate.payload(state)) == ["bundle"]
+    for recorded in ("HEAD", "gone", "main", None):
+        other = gitstate.inspect(str(clone), branch=recorded)
+        assert other is not None and (other.branch, other.ref, other.dirty) == ("main", "HEAD", True)

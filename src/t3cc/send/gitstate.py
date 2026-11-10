@@ -55,6 +55,7 @@ class GitState:
     dirty: bool
     unpushed: int
     remotes: list[str] = field(default_factory=list)
+    ref: str = "HEAD"
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -64,7 +65,16 @@ class GitState:
         return cls(**data)
 
 
-def inspect(cwd: str) -> GitState | None:
+def _local_branch(top: str, branch: str | None) -> str | None:
+    if not branch or branch == "HEAD":
+        return None
+    probe = subprocess.run(
+        ["git", "-C", top, "rev-parse", "--verify", "-q", f"refs/heads/{branch}"], capture_output=True, check=False
+    )
+    return f"refs/heads/{branch}" if probe.returncode == 0 else None
+
+
+def inspect(cwd: str, branch: str | None = None) -> GitState | None:
     if not Path(cwd).is_dir():
         return None
     probe = subprocess.run(
@@ -75,12 +85,15 @@ def inspect(cwd: str) -> GitState | None:
     top = probe.stdout.strip()
     remotes = git(top, "remote").split()
     origin = git(top, "remote", "get-url", "origin").strip() if "origin" in remotes else None
-    branch = git(top, "branch", "--show-current").strip() or None
-    head = git(top, "rev-parse", "HEAD").strip()
+    current = git(top, "branch", "--show-current").strip() or None
+    ref = _local_branch(top, branch) if branch != current else None
+    if ref is None:
+        branch, ref = current, "HEAD"
+    head = git(top, "rev-parse", ref).strip()
     git_dir = Path(top, git(top, "rev-parse", "--git-dir").strip()).resolve()
     common_dir = Path(top, git(top, "rev-parse", "--git-common-dir").strip()).resolve()
     not_on_origin = ["--not", "--remotes=origin"] if origin else []
-    unpushed = int(git(top, "rev-list", "--count", "HEAD", *not_on_origin).strip())
+    unpushed = int(git(top, "rev-list", "--count", ref, *not_on_origin).strip())
     return GitState(
         top=top,
         root=str(common_dir.parent) if common_dir.name == ".git" else top,
@@ -89,9 +102,10 @@ def inspect(cwd: str) -> GitState | None:
         head=head,
         linked=git_dir != common_dir,
         relative_cwd=str(Path(cwd).resolve().relative_to(Path(top).resolve())),
-        dirty=bool(git(top, "status", "--porcelain").strip()),
+        dirty=ref == "HEAD" and bool(git(top, "status", "--porcelain").strip()),
         unpushed=unpushed,
         remotes=sorted(remote_urls(top)),
+        ref=ref,
     )
 
 
@@ -101,8 +115,10 @@ def payload(state: GitState) -> dict[str, bytes]:
         with tempfile.TemporaryDirectory() as scratch:
             bundle = Path(scratch, "head.bundle")
             not_on_origin = ["--not", "--remotes=origin"] if state.origin else []
-            git(state.top, "bundle", "create", str(bundle), "HEAD", *not_on_origin)
+            git(state.top, "bundle", "create", str(bundle), state.ref, *not_on_origin)
             files["bundle"] = bundle.read_bytes()
+    if not state.dirty:
+        return files
     diff = subprocess.run(["git", "-C", state.top, "diff", "--binary", "HEAD"], capture_output=True, check=True).stdout
     if diff:
         files["diff"] = diff

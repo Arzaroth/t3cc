@@ -57,9 +57,9 @@ class Setup:
             (artifacts / "tool-results" / "r.txt").write_text("result")
         return path
 
-    def archive(self, cwd: Path, *, dirty_ok=True, records=None, **extra) -> Path:
+    def archive(self, cwd: Path, *, dirty_ok=True, records=None, branch=None, **extra) -> Path:
         transcript = self.source(cwd, records)
-        state = gitstate.inspect(str(cwd))
+        state = gitstate.inspect(str(cwd), branch=branch)
         payload = gitstate.payload(state) if state and dirty_ok else {}
         manifest = Manifest(
             SID,
@@ -320,3 +320,13 @@ def test_receive_prefers_the_project_with_the_same_origin(setup):
     git(twin, "remote", "add", "upstream", str(setup.origin))
     setup.world.project(str(twin))
     assert setup.receive(setup.archive(setup.local)).project == str(setup.remote)
+
+
+def test_receive_the_branch_the_session_last_ran_on(setup):
+    git(setup.local, "checkout", "-q", "-b", "topic")
+    tip = commit(setup.local, "topic.txt", "topic work")
+    git(setup.local, "checkout", "-q", "main")
+    result = setup.receive(setup.archive(setup.local, branch="topic"))
+    target = setup.remote.parent / "app.worktrees" / "topic"
+    assert result.cwd == str(target) and result.worktree_created
+    assert git(target, "rev-parse", "HEAD").strip() == tip

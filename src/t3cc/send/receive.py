@@ -119,7 +119,7 @@ def _create_worktree(root: str, branch: str, head: str, which: Which) -> str:
 def checkout(root: str, manifest: Manifest, state: GitState, staging: Path, which: Which) -> tuple[str, bool]:
     subprocess.run(["git", "-C", root, "fetch", "-q", "origin"], capture_output=True, check=False)
     if "bundle" in manifest.payload:
-        git(root, "fetch", "-q", str(staging / archive.PAYLOAD / "bundle"), "HEAD")
+        git(root, "fetch", "-q", str(staging / archive.PAYLOAD / "bundle"), state.ref)
     if not _has_commit(root, state.head):
         raise T3ccError(f"this checkout lacks commit {state.head[:12]}: push it, or send with --dirty")
     root_head = git(root, "rev-parse", "HEAD").strip()
