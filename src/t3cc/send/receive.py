@@ -1,5 +1,4 @@
 import json
-import os
 import shutil
 import subprocess
 import tarfile
@@ -16,7 +15,7 @@ from t3cc.claude import transcript as claude_transcript
 from t3cc.claude.store import ClaudeStore
 from t3cc.errors import T3ccError
 from t3cc.paths import Paths
-from t3cc.send import archive
+from t3cc.send import archive, hooks
 from t3cc.send.archive import Manifest
 from t3cc.send.gitstate import GitState, git, normalize_origin
 from t3cc.t3 import db
@@ -39,18 +38,13 @@ class Received:
         return json.dumps(asdict(self))
 
 
-def hook_env(manifest: Manifest, cwd: str) -> dict[str, str]:
-    branch = (manifest.git or {}).get("branch") or ""
-    return {**os.environ, "T3CC_SESSION": manifest.session_id, "T3CC_BRANCH": branch, "T3CC_REMOTE_DIR": cwd}
-
-
-def run_hook(command: str | None, cwd: str, env: dict[str, str]) -> str | None:
-    if not command:
-        return None
-    result = subprocess.run(["sh", "-c", command], cwd=cwd, env=env, capture_output=True, text=True, check=False)
-    if result.returncode == 0:
-        return None
-    return f"`{command}` failed ({result.returncode}): {(result.stderr or result.stdout).strip()}"
+def hook_variables(manifest: Manifest, cwd: str) -> dict[str, str]:
+    return {
+        "T3CC_SESSION": manifest.session_id,
+        "T3CC_ENV": manifest.environment or "",
+        "T3CC_BRANCH": (manifest.git or {}).get("branch") or "",
+        "T3CC_REMOTE_DIR": cwd,
+    }
 
 
 def _origin_of(root: str) -> str | None:
@@ -219,7 +213,7 @@ def receive(archive_path: Path, paths: Paths, which: Which = shutil.which) -> Re
                 target, created = checkout(root, manifest, state, staging, which)
                 apply_payload(target, manifest, staging)
             cwd = Path(target, state.relative_cwd) if state else Path(target)
-            failure = run_hook(manifest.hooks.get("post-checkout"), str(cwd), hook_env(manifest, str(cwd)))
+            failure = hooks.run(manifest.hooks.get("post-checkout"), str(cwd), hook_variables(manifest, str(cwd)))
             if failure:
                 raise T3ccError(f"post-checkout hook {failure}")
             placed = place(manifest, staging, cwd, store)
@@ -235,7 +229,7 @@ def receive(archive_path: Path, paths: Paths, which: Which = shutil.which) -> Re
                 _discard(placed)
                 raise
         warnings = []
-        failure = run_hook(manifest.hooks.get("post-import"), str(cwd), hook_env(manifest, str(cwd)))
+        failure = hooks.run(manifest.hooks.get("post-import"), str(cwd), hook_variables(manifest, str(cwd)))
         if failure:
             warnings.append(f"post-import hook {failure}")
         return Received(

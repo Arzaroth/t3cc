@@ -14,7 +14,7 @@ from t3cc.paths import Paths
 from t3cc.remote import catalog
 from t3cc.remote.rpc import Connection
 from t3cc.remote.shell import RemoteShell
-from t3cc.send import archive, gitstate, transport
+from t3cc.send import archive, gitstate, hooks, transport
 from t3cc.send.archive import Manifest
 from t3cc.send.gitstate import GitState
 from t3cc.t3 import db
@@ -34,6 +34,7 @@ class SendOptions:
     map: str | None = None
     clone: str | None = None
     hooks: dict[str, str] = field(default_factory=dict)
+    config: Path | None = None
     dry_run: bool = False
 
 
@@ -44,6 +45,7 @@ class Prepared:
     state: GitState | None
     manifest: Manifest
     data: bytes
+    hooks: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -82,6 +84,9 @@ def prepare(ref: str, options: SendOptions, paths: Paths, proc_root: Path = proc
             f"{state.top} has {state.unpushed} unpushed commits"
             f"{' and uncommitted changes' if state.dirty else ''}: push them, or send with --dirty to carry them"
         )
+    origin = gitstate.normalize_origin(state.origin) if state and state.origin else None
+    configured = hooks.load(options.config, options.env, origin) if options.config else {}
+    commands = {**configured, **options.hooks}
     payload = gitstate.payload(state) if state and options.dirty else {}
     target_root = map_root(options.map, state.root if state else parsed.cwd) if options.map else None
     transcript_bytes = path.read_bytes()
@@ -93,10 +98,21 @@ def prepare(ref: str, options: SendOptions, paths: Paths, proc_root: Path = proc
         git=state.as_dict() if state else None,
         target_root=target_root,
         clone=options.clone,
-        hooks={k: v for k, v in options.hooks.items() if k in ("post-checkout", "post-import")},
+        hooks={name: command for name, command in commands.items() if name in hooks.REMOTE},
         payload=sorted(payload),
+        environment=options.env,
     )
-    return Prepared(path, parsed.session_id, state, manifest, archive.build(path, manifest, payload))
+    data = archive.build(path, manifest, payload)
+    return Prepared(path, parsed.session_id, state, manifest, data, commands)
+
+
+def hook_variables(prepared: Prepared, remote_dir: str = "") -> dict[str, str]:
+    return {
+        "T3CC_SESSION": prepared.session_id,
+        "T3CC_ENV": prepared.manifest.environment or "",
+        "T3CC_BRANCH": (prepared.state.branch or "") if prepared.state else "",
+        "T3CC_REMOTE_DIR": remote_dir,
+    }
 
 
 def local_thread_note(paths: Paths, session_id: str) -> str | None:
@@ -183,6 +199,9 @@ def send(
     if options.dry_run:
         return result
     env = catalog.find(catalog.load(paths), options.env)
+    local_dir = prepared.manifest.source_cwd if Path(prepared.manifest.source_cwd).is_dir() else str(Path.home())
+    if failure := hooks.run(prepared.hooks.get("pre-send"), local_dir, hook_variables(prepared)):
+        raise T3ccError(f"pre-send hook {failure}")
     with Connection.open(env) as conn, RemoteShell(conn) as shell:
         result.received, result.transport, warnings = deliver(prepared, options, shell, env.label, which, progress)
     result.notes.extend(warnings)
@@ -190,6 +209,9 @@ def send(
     result.archived, result.removed = finish(prepared, options)
     if note := local_thread_note(paths, prepared.session_id):
         result.notes.append(note)
+    variables = hook_variables(prepared, result.received["cwd"])
+    if failure := hooks.run(prepared.hooks.get("post-send"), local_dir, variables):
+        result.notes.append(f"post-send hook {failure}")
     if prepared.state and prepared.state.linked and result.removed:
         result.notes.append(f"{prepared.state.top} is still checked out here: `wt remove` it when you are done")
     return result

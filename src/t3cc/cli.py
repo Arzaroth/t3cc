@@ -17,7 +17,7 @@ from t3cc.paths import Paths
 from t3cc.remote import catalog
 from t3cc.remote.rpc import Connection
 from t3cc.remote.shell import RemoteShell
-from t3cc.send import receive, sender
+from t3cc.send import hooks, receive, sender
 from t3cc.send.transport import NAMES as TRANSPORTS
 from t3cc.sync import SyncState
 from t3cc.t3 import db
@@ -221,6 +221,7 @@ def cmd_send(args: argparse.Namespace, paths: Paths, out: TextIO) -> int:
         archive_to=Path(args.archive).expanduser() if args.archive else None,
         map=args.map,
         clone=args.clone,
+        config=None if args.no_hooks else hooks.config_path(),
         dry_run=args.dry_run,
     )
     result = sender.send(args.session, options, paths, progress=_progress)
@@ -357,6 +358,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--map", help="LOCAL=REMOTE: where the session's checkout lives on the environment")
     p.add_argument("--clone", help="clone the origin there and create the T3 project when the environment has none")
+    p.add_argument("--no-hooks", action="store_true", help="ignore the hooks in ~/.config/t3cc/config.toml")
     p.add_argument("-n", "--dry-run", action="store_true")
     p.set_defaults(func=cmd_send)
 

@@ -25,6 +25,7 @@ class Manifest:
     clone: str | None = None
     hooks: dict[str, str] = field(default_factory=dict)
     payload: list[str] = field(default_factory=list)
+    environment: str | None = None
     format: int = FORMAT
 
     def to_json(self) -> str:

@@ -51,6 +51,7 @@ class Env:
         for tool in bin_dir.iterdir():
             tool.chmod(0o755)
         monkeypatch.setenv("HOME", str(tmp / "home"))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp / "xdg"))
         monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
 
     def session(self, cwd: Path, records=None) -> Path:
@@ -126,12 +127,25 @@ def test_send_dirty_worktree(env, server):
     commit(worktree, "feature.txt", "work")
     (worktree / "scratch.txt").write_text("untracked")
     env.session(worktree)
-    result = send(env, dirty=True, hooks={"post-import": "exit 5", "pre-send": "ignored"})
+    seen = env.tmp / "seen"
+    commands = {
+        "post-import": "exit 5",
+        "pre-send": f'echo "pre $T3CC_SESSION $T3CC_ENV $T3CC_BRANCH [$T3CC_REMOTE_DIR]" >> {seen}',
+        "post-checkout": f'echo "checkout $T3CC_ENV $T3CC_BRANCH $T3CC_REMOTE_DIR" >> {seen}',
+        "post-send": f'echo "post $T3CC_REMOTE_DIR" >> {seen}; exit 6',
+    }
+    result = send(env, dirty=True, hooks=commands)
     target = env.remote.parent / "app.worktrees" / "feature" / "x"
     assert result.received["cwd"] == str(target)
     assert (target / "scratch.txt").read_text() == "untracked"
     assert result.notes[0].startswith("post-import hook `exit 5` failed (5)")
+    assert result.notes[1].startswith("post-send hook `echo") and result.notes[1].endswith("failed (6): ")
     assert result.notes[-1] == f"{worktree} is still checked out here: `wt remove` it when you are done"
+    assert seen.read_text().splitlines() == [
+        f"pre {SID} box feature/x []",
+        f"checkout box feature/x {target}",
+        f"post {target}",
+    ]
 
 
 def test_send_with_a_map(env, server):
@@ -245,3 +259,50 @@ def test_cli_send_copy(env, server):
     source = env.session(env.clone)
     code, out = run_cli(env, "send", SID, "--env", "box", "--copy")
     assert code == 0 and "removed" not in out and source.exists()
+
+
+def test_send_stops_on_a_failed_pre_send_hook(env, server):
+    source = env.session(env.clone)
+    with pytest.raises(T3ccError, match="pre-send hook `exit 3` failed"):
+        send(env, hooks={"pre-send": "exit 3"})
+    assert source.exists() and env.remote_ids() == set()
+
+
+def test_send_reads_hooks_from_the_config(env, server):
+    seen = env.tmp / "seen"
+    config = env.tmp / "config.toml"
+    origin = f"{env.origin}".removesuffix(".git")
+    config.write_text(
+        f'''[hooks]
+pre-send = "echo global >> {seen}"
+post-send = "echo global-post >> {seen}"
+
+[env.box.hooks]
+pre-send = "echo env >> {seen}"
+
+[repo."{origin}".hooks]
+post-send = "echo repo >> {seen}"
+'''
+    )
+    env.session(env.clone)
+    send(env, config=config)
+    assert seen.read_text().splitlines() == ["env", "repo"]
+
+
+def test_send_runs_pre_send_from_home_when_the_directory_is_gone(env, server, tmp_path):
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    env.session(gone)
+    gone.rmdir()
+    (tmp_path / "home").mkdir()
+    with pytest.raises(T3ccError, match="pre-send hook `pwd; exit 1` failed \\(1\\): " + str(tmp_path / "home")):
+        send(env, hooks={"pre-send": "pwd; exit 1"})
+
+
+def test_cli_send_without_hooks(env, server, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    (tmp_path / "xdg" / "t3cc").mkdir(parents=True)
+    (tmp_path / "xdg" / "t3cc" / "config.toml").write_text('[hooks]\npre-send = "exit 9"\n')
+    env.session(env.clone)
+    assert run_cli(env, "send", SID, "--env", "box", "--copy")[0] == 1
+    assert run_cli(env, "send", SID, "--env", "box", "--copy", "--no-hooks")[0] == 0
