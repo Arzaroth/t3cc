@@ -1,6 +1,10 @@
 """A T3 Code server stand-in: the RPC framing, auth and stream ack window of the real one."""
 
+import codecs
 import json
+import os
+import pty
+import subprocess
 import threading
 from collections.abc import Callable
 from http import HTTPStatus
@@ -64,6 +68,40 @@ def _ping_first(call: Call) -> None:
     call.succeed("pong seen")
 
 
+class Terminal:
+    def __init__(self, cwd: str):
+        self.master, slave = pty.openpty()
+        self.proc = subprocess.Popen(
+            ["sh"],
+            cwd=cwd,
+            stdin=slave,
+            stdout=slave,
+            stderr=slave,
+            env={**os.environ, "PS1": "fake$ "},
+            start_new_session=True,
+        )
+        os.close(slave)
+        self.attached = threading.Event()
+
+    def stream(self, call: Call) -> None:
+        call.chunk({"type": "snapshot", "snapshot": {"history": ""}})
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        while True:
+            try:
+                data = os.read(self.master, 65536)
+            except OSError:
+                data = b""
+            if not data:
+                break
+            call.chunk({"type": "output", "data": decoder.decode(data)})
+        call.chunk({"type": "exited", "exitCode": self.proc.wait()})
+        call.succeed()
+
+    def close(self) -> None:
+        self.proc.kill()
+        self.proc.wait()
+
+
 class FakeT3:
     def __init__(self, token: str = "tok"):
         self.token = token
@@ -77,7 +115,12 @@ class FakeT3:
             "chunk-then-exit": _chunk_then_exit,
             "silent": lambda call: None,
             "hang-up": lambda call: call.ws.close(),
+            "terminal.open": self._terminal_open,
+            "terminal.attach": self._terminal_attach,
+            "terminal.write": self._terminal_write,
+            "terminal.close": self._terminal_close,
         }
+        self.terminals: dict[str, Terminal] = {}
         self._server = serve(self._handle, "127.0.0.1", 0, process_request=self._authorize)
         self.port = self._server.socket.getsockname()[1]
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
@@ -91,8 +134,42 @@ class FakeT3:
         return self
 
     def __exit__(self, *exc: object) -> None:
+        for terminal in self.terminals.values():
+            terminal.close()
         self._server.shutdown()
         self._thread.join(5)
+
+    def _terminal(self, call: Call) -> Terminal | None:
+        terminal = self.terminals.get(call.payload["terminalId"])
+        if terminal is None:
+            call.fail({"_tag": "TerminalNotRunningError", "message": "no such terminal"})
+        return terminal
+
+    def _terminal_open(self, call: Call) -> None:
+        cwd = call.payload["cwd"]
+        if not os.path.isdir(cwd):
+            call.fail({"_tag": "TerminalCwdNotFoundError", "message": f"Terminal cwd does not exist: {cwd}"})
+            return
+        self.terminals[call.payload["terminalId"]] = Terminal(cwd)
+        call.succeed({"terminalId": call.payload["terminalId"], "status": "running"})
+
+    def _terminal_attach(self, call: Call) -> None:
+        terminal = self._terminal(call)
+        if terminal:
+            terminal.stream(call)
+
+    def _terminal_write(self, call: Call) -> None:
+        terminal = self._terminal(call)
+        if terminal:
+            os.write(terminal.master, call.payload["data"].encode())
+            call.succeed()
+
+    def _terminal_close(self, call: Call) -> None:
+        terminal = self._terminal(call)
+        if terminal:
+            del self.terminals[call.payload["terminalId"]]
+            terminal.close()
+            call.succeed()
 
     def _authorize(self, connection: ServerConnection, request):
         if "orchestrationProtocol=2" not in request.path:

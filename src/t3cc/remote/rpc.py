@@ -19,6 +19,10 @@ class RpcError(T3ccError):
     """A request the environment answered with a failure."""
 
 
+class RpcTimeout(T3ccError):
+    """The environment did not answer in time."""
+
+
 def _cause_message(cause: Any) -> str:
     first = cause[0] if isinstance(cause, list) and cause else cause
     if isinstance(first, dict):
@@ -96,7 +100,7 @@ class Connection:
         try:
             message = json.loads(self._ws.recv(timeout=timeout))
         except TimeoutError:
-            raise T3ccError(f"{self.label} did not answer in time") from None
+            raise RpcTimeout(f"{self.label} did not answer in time") from None
         except ConnectionClosed as error:
             raise T3ccError(f"{self.label} closed the connection: {error}") from None
         tag = message.get("_tag")
