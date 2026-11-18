@@ -8,9 +8,9 @@ from t3cc import procs
 from t3cc.errors import T3ccError
 from t3cc.paths import Paths, backup_path
 
-# Event and projection shapes were checked against T3 Code 0.1.5 to 0.1.7 (schema migrations 72, 76, 79).
+# Event and projection shapes were checked against T3 Code 0.1.5 to 0.1.9 (schema migrations 72, 76, 79, 80, 81).
 # T3 decodes every projection row it reads, so writing into an unchecked schema could break the threads it lists.
-SUPPORTED_SCHEMA_VERSIONS = frozenset({72, 76, 79})
+SUPPORTED_SCHEMA_VERSIONS = frozenset({72, 76, 79, 80, 81})
 
 
 def running_server_pid(runtime_file: Path, proc_root: Path = procs.PROC) -> int | None:
