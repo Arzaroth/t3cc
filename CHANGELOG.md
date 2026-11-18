@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Imports write into T3 Code 0.1.8 and 0.1.9 databases (schema migrations 80
-  and 81) without `--allow-unknown-schema`.
+- Imports write into T3 Code 0.1.8 to 0.1.10 databases (schema migrations 80,
+  81 and 96) without `--allow-unknown-schema`.
 
 ## [0.4.0] - 2026-11-10
 
